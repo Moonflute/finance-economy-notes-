@@ -80,55 +80,98 @@ function renderChapter(slug) {
 
 function renderStudyChapter(chapter) {
   const meta = chapterMeta[chapter.slug] || {};
+  const sections = splitChapterSections(chapter.html);
   const host = document.querySelector("#chapterContent");
   const aside = document.querySelector("#chapterAside");
   host.innerHTML = `
     <section class="chapter-head">
-      <p class="eyebrow">${escapeHtml(meta.kicker || "study notes")}</p>
+      <p class="eyebrow">${escapeHtml(meta.kicker || "concept reference")}</p>
       <h2>${escapeHtml(meta.label || chapter.title)}</h2>
-      <p>${escapeHtml(meta.summary || "정리 내용을 구조화해 학습 흐름에 맞게 배치했습니다.")}</p>
+      <p>${escapeHtml(meta.summary || "정리한 개념을 체계적으로 재구성한 레퍼런스입니다.")}</p>
     </section>
     <section class="section-block">
-      <h3>학습 포인트</h3>
+      <h3>핵심 관점</h3>
       <ul class="point-list">${(meta.points || []).map((point) => `<li>${escapeHtml(point)}</li>`).join("")}</ul>
     </section>
     <section class="section-block">
-      <h3>핵심 구조</h3>
-      <div class="concept-map">${(meta.map || []).map((item) => `<span>${escapeHtml(item)}</span>`).join("")}</div>
+      <h3>개념 관계도</h3>
+      ${renderConceptGraph(meta)}
     </section>
     ${renderTool(meta.tool)}
-    <details class="detail-notes" open>
-      <summary>상세 정리</summary>
-      <div class="detail-body">${chapter.html.replace(/<h1>.*?<\/h1>/, "")}</div>
-    </details>
+    <section class="subchapter-shell">
+      <div class="subchapter-head">
+        <h3>하위챕터</h3>
+        <span>${sections.length} sections</span>
+      </div>
+      <div class="subchapter-tabs">${sections.map((section, index) => `<button class="${index === 0 ? "active" : ""}" data-section-index="${index}">${escapeHtml(section.title)}</button>`).join("")}</div>
+      <article id="subchapterBody" class="subchapter-body"></article>
+    </section>
   `;
-  aside.innerHTML = renderAside(meta);
+  aside.innerHTML = renderAside(meta, sections);
+  bindSectionExplorer(sections);
   bindChapterTools(meta.tool);
 }
 
-function renderAside(meta) {
+function splitChapterSections(html) {
+  const cleaned = html.replace(/<h1>.*?<\/h1>/, "");
+  const doc = document.createElement("div");
+  doc.innerHTML = cleaned;
+  const h4Count = doc.querySelectorAll("h4").length;
+  const selector = h4Count > 2 ? "h4" : "h5";
+  const headings = [...doc.querySelectorAll(selector)];
+  if (headings.length === 0) return [{ title: "상세 정리", html: cleaned }];
+  return headings.map((heading) => {
+    const parts = [heading.outerHTML];
+    let node = heading.nextElementSibling;
+    while (node && !node.matches(selector)) {
+      parts.push(node.outerHTML);
+      node = node.nextElementSibling;
+    }
+    return { title: heading.textContent.trim(), html: parts.join("") };
+  });
+}
+
+function bindSectionExplorer(sections) {
+  const body = document.querySelector("#subchapterBody");
+  const buttons = [...document.querySelectorAll(".subchapter-tabs button")];
+  function paint(index) {
+    buttons.forEach((button) => button.classList.toggle("active", Number(button.dataset.sectionIndex) === index));
+    body.innerHTML = sections[index]?.html || "";
+  }
+  buttons.forEach((button) => button.addEventListener("click", () => paint(Number(button.dataset.sectionIndex))));
+  paint(0);
+}
+
+function renderConceptGraph(meta) {
+  const nodes = meta.map || [];
+  if (!nodes.length) return "";
+  const center = escapeHtml(meta.label || "핵심");
   return `
-    <h2>읽는 순서</h2>
-    <ol>
-      <li>학습 포인트로 범위 확인</li>
-      <li>핵심 구조로 큰 지도 잡기</li>
-      <li>관련 도구로 수치 감각 확인</li>
-      <li>상세 정리에서 원문 기반 내용 확인</li>
-    </ol>
-    <h2>보강 기준</h2>
+    <div class="concept-graph" style="--node-count:${nodes.length}">
+      <div class="graph-center">${center}</div>
+      ${nodes.map((node, index) => `<div class="graph-node" style="--i:${index}"><span>${escapeHtml(node)}</span></div>`).join("")}
+    </div>
+  `;
+}
+
+function renderAside(meta, sections) {
+  return `
+    <h2>문서 구조</h2>
+    <p>큰 개념 관계를 먼저 확인하고, 필요한 하위챕터를 선택해 세부 내용을 확인합니다.</p>
+    <div class="aside-section-list">${sections.slice(0, 12).map((section) => `<span>${escapeHtml(section.title)}</span>`).join("")}</div>
+    <h2>검증 기준</h2>
     <p>세제·법률·시장제도는 공식 출처 기준으로 별도 검증해 반영합니다.</p>
     <div class="source-tags">
       <span>국세청</span><span>국가법령정보센터</span><span>금융위원회</span><span>금융감독원</span><span>한국거래소</span>
     </div>
   `;
 }
-
 function renderTool(type) {
   if (type === "economics") return `
     <section class="tool-zone">
       <div class="tool-copy">
-        <h3>정책 충격 방향표</h3>
-        <p>정책·충격을 선택해 성장, 물가, 금리, 환율의 일반적 방향을 빠르게 확인합니다.</p>
+        <h3>금리·정책 전달경로</h3>
+        <p>거시 변수 하나가 움직일 때 성장, 물가, 금리, 환율로 이어지는 일반적 전달 방향을 시각적으로 정리합니다.</p>
       </div>
       <div class="segmented" data-tool="macro">
         <button class="active" data-scenario="rateCut">금리 인하</button>
@@ -142,7 +185,7 @@ function renderTool(type) {
   if (type === "finance") return `
     <section class="tool-zone two-col-tools">
       <article class="tool-panel">
-        <h3>채권 가격 민감도</h3>
+        <h3>채권가격과 금리 민감도</h3>
         <div class="controls">
           <label>수정듀레이션 <input id="durationInput" type="range" min="1" max="12" step="0.1" value="5"></label>
           <label>볼록성 <input id="convexityInput" type="range" min="5" max="120" step="1" value="45"></label>
@@ -152,7 +195,7 @@ function renderTool(type) {
         <canvas id="bondCanvas" width="620" height="240"></canvas>
       </article>
       <article class="tool-panel">
-        <h3>CAPM 기대수익률</h3>
+        <h3>CAPM 요구수익률 구조</h3>
         <div class="controls">
           <label>무위험수익률 <input id="rfInput" type="range" min="0" max="7" step="0.1" value="3.2"></label>
           <label>시장위험프리미엄 <input id="mrpInput" type="range" min="1" max="10" step="0.1" value="5"></label>
@@ -166,8 +209,8 @@ function renderTool(type) {
   if (type === "planning") return `
     <section class="tool-zone">
       <div class="tool-copy">
-        <h3>은퇴 필요자금 감각</h3>
-        <p>월 필요 생활비와 은퇴기간을 바꿔 단순 필요자금을 확인합니다. 실제 설계에서는 물가, 수익률, 세금이 추가됩니다.</p>
+        <h3>은퇴 현금흐름 규모</h3>
+        <p>월 생활비와 기간이 은퇴 필요자금 규모를 어떻게 바꾸는지 보여주는 보조 시각화입니다.</p>
       </div>
       <div class="planning-calc">
         <label>월 생활비(만원) <input id="monthlyNeed" type="range" min="100" max="800" step="10" value="300"></label>
@@ -179,8 +222,8 @@ function renderTool(type) {
   if (type === "law") return `
     <section class="tool-zone">
       <div class="tool-copy">
-        <h3>투자권유 체크리스트</h3>
-        <p>일반투자자에게 금융투자상품을 권유하기 전 최소 확인해야 할 판매규제 항목입니다.</p>
+        <h3>금융상품 판매규제 구조</h3>
+        <p>일반투자자 보호 장치가 판매 과정의 어느 지점에 배치되는지 정리한 구조입니다.</p>
       </div>
       <div class="checklist">
         <label><input type="checkbox"> 투자목적·재산상황·경험 확인</label>
@@ -406,3 +449,5 @@ function drawLine(ctx, points, width, height, color, minY, maxY, xLabel, yLabel)
 }
 
 loadContent();
+
+
