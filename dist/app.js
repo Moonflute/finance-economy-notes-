@@ -1,4 +1,4 @@
-﻿let guideData = null;
+let guideData = null;
 
 const money = new Intl.NumberFormat("ko-KR", { maximumFractionDigits: 2 });
 
@@ -208,6 +208,25 @@ function renderAside(meta, sections) {
     <div class="source-tags">
       <span>국세청</span><span>국가법령정보센터</span><span>금융위원회</span><span>금융감독원</span><span>한국거래소</span>
     </div>
+  `;
+}
+
+function renderFrameworkBlock(html) {
+  const doc = document.createElement("div");
+  doc.innerHTML = html.replace(/<h1>.*?<\/h1>/, "");
+  const heading = [...doc.querySelectorAll("h2")].find((node) => node.textContent.trim() === "개념 프레임");
+  if (!heading) return "";
+  const parts = [];
+  let node = heading.nextElementSibling;
+  while (node && !node.matches("h2, h3, h4")) {
+    parts.push(node.outerHTML);
+    node = node.nextElementSibling;
+  }
+  return `
+    <section class="section-block framework-block">
+      <h3>개념 프레임</h3>
+      <div class="framework-body">${parts.join("")}</div>
+    </section>
   `;
 }
 function renderTool(type) {
@@ -493,6 +512,7 @@ function drawLine(ctx, points, width, height, color, minY, maxY, xLabel, yLabel)
 }
 
 loadContent();
+
 
 
 

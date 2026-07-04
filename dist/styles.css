@@ -636,3 +636,22 @@ mark { padding: 1px 3px; border-radius: 4px; background: #ffe08a; color: inherit
 .md-list li + li {
   margin-top: 3px;
 }
+
+.framework-block {
+  border: 1px solid #dbe8ec;
+  border-radius: 8px;
+  padding: 16px;
+  background: #fbfdfd;
+}
+
+.framework-block h3 {
+  margin-top: 0;
+}
+
+.framework-body table {
+  background: #fff;
+}
+
+.framework-body p strong {
+  color: var(--teal);
+}
