@@ -622,3 +622,17 @@ mark { padding: 1px 3px; border-radius: 4px; background: #ffe08a; color: inherit
 .concept-card-body ul {
   padding-left: 18px;
 }
+
+.md-list {
+  margin: 6px 0;
+  padding-left: 20px;
+}
+
+.md-list.md-indent-1 { margin-left: 18px; font-size: .96em; }
+.md-list.md-indent-2 { margin-left: 36px; font-size: .94em; }
+.md-list.md-indent-3 { margin-left: 54px; font-size: .92em; }
+.md-list.md-indent-4 { margin-left: 72px; font-size: .9em; }
+
+.md-list li + li {
+  margin-top: 3px;
+}

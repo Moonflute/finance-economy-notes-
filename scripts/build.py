@@ -33,19 +33,24 @@ def inline_markdown(text: str) -> str:
 def markdown_to_html(markdown: str) -> str:
     lines = markdown.splitlines()
     out: list[str] = []
-    in_ul = False
-    in_ol = False
+    current_list: tuple[str, int] | None = None
     in_table = False
     table_rows: list[str] = []
 
-    def close_lists() -> None:
-        nonlocal in_ul, in_ol
-        if in_ul:
-            out.append("</ul>")
-            in_ul = False
-        if in_ol:
-            out.append("</ol>")
-            in_ol = False
+    def close_list() -> None:
+        nonlocal current_list
+        if current_list:
+            out.append(f"</{current_list[0]}>")
+            current_list = None
+
+    def ensure_list(tag: str, indent: int) -> None:
+        nonlocal current_list
+        if current_list == (tag, indent):
+            return
+        close_list()
+        depth = min(indent // 4, 4)
+        out.append(f"<{tag} class=\"md-list md-indent-{depth}\">")
+        current_list = (tag, indent)
 
     def flush_table() -> None:
         nonlocal in_table, table_rows
@@ -66,47 +71,38 @@ def markdown_to_html(markdown: str) -> str:
         line = raw.rstrip()
         if not line:
             flush_table()
-            close_lists()
+            close_list()
             continue
         if "|" in line and line.strip().startswith("|"):
-            close_lists()
+            close_list()
             in_table = True
             table_rows.append(line)
             continue
         flush_table()
         heading = re.match(r"^(#{1,6})\s+(.+)$", line)
         if heading:
-            close_lists()
+            close_list()
             level = len(heading.group(1))
             out.append(f"<h{level}>{inline_markdown(heading.group(2))}</h{level}>")
             continue
-        bullet = re.match(r"^\s*[-*]\s+(.+)$", line)
+        bullet = re.match(r"^(\s*)[-*]\s+(.+)$", line)
         if bullet:
-            if in_ol:
-                out.append("</ol>")
-                in_ol = False
-            if not in_ul:
-                out.append("<ul>")
-                in_ul = True
-            out.append(f"<li>{inline_markdown(bullet.group(1))}</li>")
+            indent = len(bullet.group(1).replace("\t", "    "))
+            ensure_list("ul", indent)
+            out.append(f"<li>{inline_markdown(bullet.group(2))}</li>")
             continue
-        numbered = re.match(r"^\s*\d+\.\s+(.+)$", line)
+        numbered = re.match(r"^(\s*)\d+\.\s+(.+)$", line)
         if numbered:
-            if in_ul:
-                out.append("</ul>")
-                in_ul = False
-            if not in_ol:
-                out.append("<ol>")
-                in_ol = True
-            out.append(f"<li>{inline_markdown(numbered.group(1))}</li>")
+            indent = len(numbered.group(1).replace("\t", "    "))
+            ensure_list("ol", indent)
+            out.append(f"<li>{inline_markdown(numbered.group(2))}</li>")
             continue
-        close_lists()
+        close_list()
         out.append(f"<p>{inline_markdown(line)}</p>")
 
     flush_table()
-    close_lists()
+    close_list()
     return "\n".join(out)
-
 
 def read_chapters() -> list[Chapter]:
     chapters: list[Chapter] = []
@@ -178,3 +174,5 @@ def render_print_html(chapters: list[Chapter], version: str) -> str:
 
 if __name__ == "__main__":
     build()
+
+
