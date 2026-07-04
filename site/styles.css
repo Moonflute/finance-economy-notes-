@@ -55,6 +55,8 @@ body {
 
 nav { display: grid; gap: 6px; }
 
+.nav-group { display: grid; gap: 4px; }
+
 nav button {
   width: 100%;
   min-height: 40px;
@@ -68,11 +70,34 @@ nav button {
   cursor: pointer;
 }
 
-nav button.active,
+.chapter-nav.active,
 nav button:hover {
   border-color: #cce1e5;
   background: var(--soft);
   color: #0b5968;
+}
+
+.subnav {
+  display: grid;
+  gap: 2px;
+  margin: 0 0 8px 8px;
+  padding-left: 10px;
+  border-left: 1px solid #dce7eb;
+}
+
+.subnav-item {
+  min-height: 28px;
+  padding: 4px 6px;
+  border-radius: 6px;
+  color: #435060;
+  font-size: .78rem;
+  line-height: 1.35;
+}
+
+.subnav-item.level-2 {
+  padding-left: 18px;
+  color: #667085;
+  font-size: .74rem;
 }
 
 .app-shell { margin-left: 220px; }
@@ -182,6 +207,63 @@ nav button:hover {
 .chapter-head p { max-width: 860px; margin: 0; color: #435060; }
 
 .section-block { margin: 28px 0; }
+
+.main-body {
+  max-width: 1180px;
+}
+
+.main-body > h2,
+.main-body > h3,
+.main-body > h4,
+.main-body > h5 {
+  scroll-margin-top: 86px;
+}
+
+.main-body table {
+  width: 100%;
+  border-collapse: collapse;
+  margin: 14px 0 22px;
+  background: #fff;
+}
+
+.main-body th,
+.main-body td {
+  padding: 10px 12px;
+  border: 1px solid #dfe7ee;
+  vertical-align: top;
+  text-align: left;
+}
+
+.main-body th {
+  background: #f3f7f8;
+  color: #263441;
+}
+
+.main-body h4 {
+  margin-top: 34px;
+  padding-top: 18px;
+  border-top: 1px solid var(--line);
+  color: #111827;
+  font-size: 1.24rem;
+}
+
+.main-body h5 {
+  margin-top: 26px;
+  color: #0b5968;
+  font-size: 1.08rem;
+}
+
+.main-body h6 {
+  margin-top: 20px;
+  color: #374151;
+  font-size: 1rem;
+}
+
+.main-body p,
+.main-body li {
+  color: #344054;
+}
+
 .section-block h3,
 .tool-zone h3,
 .tool-panel h3 { margin: 0 0 10px; font-size: 1.08rem; line-height: 1.3; }
@@ -222,8 +304,9 @@ nav button:hover {
 }
 
 .tool-zone {
-  margin: 30px 0;
-  padding: 22px;
+  max-width: 920px;
+  margin: 16px 0 26px;
+  padding: 16px;
 }
 
 .tool-copy p,
@@ -262,6 +345,7 @@ input[type="checkbox"] { accent-color: var(--teal); }
 
 canvas {
   width: 100%;
+  max-height: 220px;
   height: auto;
   border: 1px solid var(--line);
   border-radius: 8px;
@@ -288,12 +372,12 @@ canvas {
 
 .scenario-grid {
   display: grid;
-  grid-template-columns: repeat(4, minmax(0, 1fr));
+  grid-template-columns: repeat(4, minmax(120px, 1fr));
   gap: 10px;
 }
 
 .scenario-grid div {
-  min-height: 78px;
+  min-height: 66px;
   padding: 12px;
   border: 1px solid var(--line);
   border-radius: 8px;
@@ -657,4 +741,11 @@ mark { padding: 1px 3px; border-radius: 4px; background: #ffe08a; color: inherit
 
 .framework-body p strong {
   color: var(--teal);
+}
+
+
+.concept-graph,
+.subchapter-shell,
+.concept-card-grid {
+  display: none;
 }

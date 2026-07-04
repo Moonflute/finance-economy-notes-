@@ -41,7 +41,6 @@ async function loadContent() {
   const response = await fetch("content.json");
   guideData = await response.json();
   renderAppVersion();
-  renderNav();
   renderChapter(guideData.chapters[0].slug);
 }
 
@@ -50,18 +49,29 @@ function renderAppVersion() {
   if (versionNode) versionNode.textContent = `v ${guideData.version || "0.0.0"}`;
 }
 
-function renderNav() {
+function renderNav(activeSlug) {
   const nav = document.querySelector("#chapterNav");
-  nav.innerHTML = guideData.chapters
-    .map((chapter, index) => `<button data-slug="${chapter.slug}" class="${index === 0 ? "active" : ""}">${displayTitle(chapter)}</button>`)
-    .join("");
-  nav.addEventListener("click", (event) => {
-    const button = event.target.closest("button[data-slug]");
-    if (!button) return;
-    nav.querySelectorAll("button").forEach((item) => item.classList.remove("active"));
-    button.classList.add("active");
-    renderChapter(button.dataset.slug);
-  });
+  nav.innerHTML = guideData.chapters.map((chapter, index) => {
+    const active = chapter.slug === activeSlug;
+    const outline = active && chapter.slug !== "05_dictionary" ? getChapterOutline(chapter.html) : [];
+    return `
+      <div class="nav-group">
+        <button data-slug="${chapter.slug}" class="chapter-nav ${active ? "active" : ""}">${displayTitle(chapter)}</button>
+        ${outline.length ? `<div class="subnav">${outline.map((item) => `<button class="subnav-item level-${item.level}" data-anchor="${item.id}">${escapeHtml(item.title)}</button>`).join("")}</div>` : ""}
+      </div>
+    `;
+  }).join("");
+  nav.onclick = (event) => {
+    const chapterButton = event.target.closest("button[data-slug]");
+    if (chapterButton) {
+      renderChapter(chapterButton.dataset.slug);
+      return;
+    }
+    const sectionButton = event.target.closest("button[data-anchor]");
+    if (sectionButton) {
+      document.getElementById(sectionButton.dataset.anchor)?.scrollIntoView({ behavior: "smooth", block: "start" });
+    }
+  };
 }
 
 function displayTitle(chapter) {
@@ -71,6 +81,7 @@ function displayTitle(chapter) {
 
 function renderChapter(slug) {
   const chapter = guideData.chapters.find((item) => item.slug === slug);
+  renderNav(slug);
   if (chapter.slug === "05_dictionary") {
     renderDictionaryChapter(chapter);
     return;
@@ -80,7 +91,7 @@ function renderChapter(slug) {
 
 function renderStudyChapter(chapter) {
   const meta = chapterMeta[chapter.slug] || {};
-  const sections = splitChapterSections(chapter.html);
+  const prepared = prepareChapterHtml(chapter.html, meta.tool);
   const host = document.querySelector("#chapterContent");
   host.innerHTML = `
     <section class="chapter-head">
@@ -88,121 +99,51 @@ function renderStudyChapter(chapter) {
       <h2>${escapeHtml(meta.label || chapter.title)}</h2>
       <p>${escapeHtml(meta.summary || "원자료 기반 개념 레퍼런스입니다.")}</p>
     </section>
-    <section class="section-block">
-      <h3>개념 관계도</h3>
-      ${renderConceptGraph(meta)}
-    </section>
-    ${renderTool(meta.tool)}
-    <section class="subchapter-shell">
-      <div class="subchapter-head">
-        <h3>하위챕터</h3>
-        <span>${sections.length} sections</span>
-      </div>
-      <div class="subchapter-tabs">${sections.map((section, index) => `<button class="${index === 0 ? "active" : ""}" data-section-index="${index}">${escapeHtml(section.title)}</button>`).join("")}</div>
-      <article id="subchapterBody" class="subchapter-body"></article>
-    </section>
+    <section class="main-body">${prepared.html}</section>
   `;
-  bindSectionExplorer(sections);
   bindChapterTools(meta.tool);
 }
 
-function splitChapterSections(html) {
-  const cleaned = html.replace(/<h1>.*?<\/h1>/, "");
+function getChapterOutline(html) {
   const doc = document.createElement("div");
-  doc.innerHTML = cleaned;
-  const h4Count = doc.querySelectorAll("h4").length;
-  const selector = h4Count > 2 ? "h4" : "h5";
-  const headings = [...doc.querySelectorAll(selector)];
-  if (headings.length === 0) return [{ title: "상세 정리", html: cleaned }];
-  return headings.map((heading) => {
-    const parts = [heading.outerHTML];
-    let node = heading.nextElementSibling;
-    while (node && !node.matches(selector)) {
-      parts.push(node.outerHTML);
-      node = node.nextElementSibling;
-    }
-    return { title: heading.textContent.trim(), html: parts.join("") };
+  doc.innerHTML = html.replace(/<h1>.*?<\/h1>/, "");
+  return [...doc.querySelectorAll("h4, h5")].map((heading, index) => ({
+    id: makeHeadingId(heading.textContent, index),
+    title: heading.textContent.trim(),
+    level: heading.tagName === "H4" ? 1 : 2,
+  }));
+}
+
+function prepareChapterHtml(html, toolType) {
+  const doc = document.createElement("div");
+  doc.innerHTML = html.replace(/<h1>.*?<\/h1>/, "");
+  [...doc.querySelectorAll("h4, h5")].forEach((heading, index) => {
+    heading.id = makeHeadingId(heading.textContent, index);
   });
+  insertInlineTool(doc, toolType);
+  return { html: doc.innerHTML };
 }
 
-function bindSectionExplorer(sections) {
-  const body = document.querySelector("#subchapterBody");
-  const buttons = [...document.querySelectorAll(".subchapter-tabs button")];
-  function paint(index) {
-    buttons.forEach((button) => button.classList.toggle("active", Number(button.dataset.sectionIndex) === index));
-    body.innerHTML = renderSectionBody(sections[index]);
-  }
-  buttons.forEach((button) => button.addEventListener("click", () => paint(Number(button.dataset.sectionIndex))));
-  paint(0);
+function makeHeadingId(text, index) {
+  return `section-${index}-${String(text).trim().replace(/[^0-9A-Za-z?-?]+/g, "-").replace(/^-|-$/g, "").slice(0, 40)}`;
 }
 
-
-function renderSectionBody(section) {
-  if (!section) return "";
-  const doc = document.createElement("div");
-  doc.innerHTML = section.html;
-  const firstHeading = doc.querySelector("h4, h5");
-  const firstLevel = firstHeading ? Number(firstHeading.tagName.slice(1)) : 4;
-  const childSelector = firstLevel <= 4 ? "h5" : "h6";
-  const childHeadings = [...doc.querySelectorAll(childSelector)];
-
-  if (childHeadings.length < 2) {
-    return `<div class="section-prose">${section.html}</div>`;
-  }
-
-  const introParts = [];
-  let node = firstHeading ? firstHeading.nextElementSibling : doc.firstElementChild;
-  while (node && !node.matches(childSelector)) {
-    introParts.push(node.outerHTML);
-    node = node.nextElementSibling;
-  }
-
-  const cards = childHeadings.map((heading, index) => {
-    const parts = [];
-    let child = heading.nextElementSibling;
-    while (child && !child.matches(childSelector)) {
-      parts.push(child.outerHTML);
-      child = child.nextElementSibling;
-    }
-    return `
-      <details class="concept-card" ${index === 0 ? "open" : ""}>
-        <summary>${escapeHtml(heading.textContent.trim())}</summary>
-        <div class="concept-card-body">${parts.join("")}</div>
-      </details>
-    `;
-  }).join("");
-
-  return `
-    <div class="section-prose">
-      ${firstHeading ? firstHeading.outerHTML : ""}
-      ${introParts.join("")}
-    </div>
-    <div class="concept-card-grid">${cards}</div>
-  `;
-}
-function renderConceptGraph(meta) {
-  const nodes = meta.map || [];
-  if (!nodes.length) return "";
-  const center = escapeHtml(meta.label || "핵심");
-  return `
-    <div class="concept-graph" style="--node-count:${nodes.length}">
-      <div class="graph-center">${center}</div>
-      ${nodes.map((node, index) => `<div class="graph-node" style="--i:${index}"><span>${escapeHtml(node)}</span></div>`).join("")}
-    </div>
-  `;
-}
-
-function renderAside(meta, sections) {
-  return `
-    <h2>문서 구조</h2>
-    <p>원자료를 개념 단위로 나눈 목차입니다. 필요한 항목만 펼쳐서 봅니다.</p>
-    <div class="aside-section-list">${sections.slice(0, 12).map((section) => `<span>${escapeHtml(section.title)}</span>`).join("")}</div>
-    <h2>검증 기준</h2>
-    <p>세제·법률·시장제도는 공식 출처 기준으로 별도 검증해 반영합니다.</p>
-    <div class="source-tags">
-      <span>국세청</span><span>국가법령정보센터</span><span>금융위원회</span><span>금융감독원</span><span>한국거래소</span>
-    </div>
-  `;
+function insertInlineTool(doc, toolType) {
+  const toolHtml = renderTool(toolType);
+  if (!toolHtml) return;
+  const rules = {
+    economics: ["통화 정책", "재정 및 통화정책"],
+    finance: ["채권 투자", "채권"],
+    planning: ["재무설계 프로세스", "재무설계"],
+    law: ["금융소비자 보호법", "금융소비자"],
+  };
+  const targets = rules[toolType] || [];
+  const headings = [...doc.querySelectorAll("h4, h5")];
+  const target = headings.find((heading) => targets.some((keyword) => heading.textContent.includes(keyword))) || headings[1] || headings[0];
+  if (!target) return;
+  const wrapper = document.createElement("div");
+  wrapper.innerHTML = toolHtml;
+  target.insertAdjacentElement("afterend", wrapper.firstElementChild);
 }
 
 function renderFrameworkBlock(html) {
