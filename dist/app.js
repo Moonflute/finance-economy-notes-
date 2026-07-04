@@ -1,4 +1,4 @@
-let guideData = null;
+﻿let guideData = null;
 
 const money = new Intl.NumberFormat("ko-KR", { maximumFractionDigits: 2 });
 
@@ -87,7 +87,7 @@ function renderStudyChapter(chapter) {
     <section class="chapter-head">
       <p class="eyebrow">${escapeHtml(meta.kicker || "concept reference")}</p>
       <h2>${escapeHtml(meta.label || chapter.title)}</h2>
-      <p>${escapeHtml(meta.summary || "정리한 개념을 체계적으로 재구성한 레퍼런스입니다.")}</p>
+      <p>${escapeHtml(meta.summary || "원자료 기반 개념 레퍼런스입니다.")}</p>
     </section>
     <section class="section-block">
       <h3>핵심 관점</h3>
@@ -136,12 +136,56 @@ function bindSectionExplorer(sections) {
   const buttons = [...document.querySelectorAll(".subchapter-tabs button")];
   function paint(index) {
     buttons.forEach((button) => button.classList.toggle("active", Number(button.dataset.sectionIndex) === index));
-    body.innerHTML = sections[index]?.html || "";
+    body.innerHTML = renderSectionBody(sections[index]);
   }
   buttons.forEach((button) => button.addEventListener("click", () => paint(Number(button.dataset.sectionIndex))));
   paint(0);
 }
 
+
+function renderSectionBody(section) {
+  if (!section) return "";
+  const doc = document.createElement("div");
+  doc.innerHTML = section.html;
+  const firstHeading = doc.querySelector("h4, h5");
+  const firstLevel = firstHeading ? Number(firstHeading.tagName.slice(1)) : 4;
+  const childSelector = firstLevel <= 4 ? "h5" : "h6";
+  const childHeadings = [...doc.querySelectorAll(childSelector)];
+
+  if (childHeadings.length < 2) {
+    return `<div class="section-prose">${section.html}</div>`;
+  }
+
+  const introParts = [];
+  let node = firstHeading ? firstHeading.nextElementSibling : doc.firstElementChild;
+  while (node && !node.matches(childSelector)) {
+    introParts.push(node.outerHTML);
+    node = node.nextElementSibling;
+  }
+
+  const cards = childHeadings.map((heading, index) => {
+    const parts = [];
+    let child = heading.nextElementSibling;
+    while (child && !child.matches(childSelector)) {
+      parts.push(child.outerHTML);
+      child = child.nextElementSibling;
+    }
+    return `
+      <details class="concept-card" ${index === 0 ? "open" : ""}>
+        <summary>${escapeHtml(heading.textContent.trim())}</summary>
+        <div class="concept-card-body">${parts.join("")}</div>
+      </details>
+    `;
+  }).join("");
+
+  return `
+    <div class="section-prose">
+      ${firstHeading ? firstHeading.outerHTML : ""}
+      ${introParts.join("")}
+    </div>
+    <div class="concept-card-grid">${cards}</div>
+  `;
+}
 function renderConceptGraph(meta) {
   const nodes = meta.map || [];
   if (!nodes.length) return "";
@@ -157,7 +201,7 @@ function renderConceptGraph(meta) {
 function renderAside(meta, sections) {
   return `
     <h2>문서 구조</h2>
-    <p>큰 개념 관계를 먼저 확인하고, 필요한 하위챕터를 선택해 세부 내용을 확인합니다.</p>
+    <p>원자료를 개념 단위로 나눈 목차입니다. 필요한 항목만 펼쳐서 봅니다.</p>
     <div class="aside-section-list">${sections.slice(0, 12).map((section) => `<span>${escapeHtml(section.title)}</span>`).join("")}</div>
     <h2>검증 기준</h2>
     <p>세제·법률·시장제도는 공식 출처 기준으로 별도 검증해 반영합니다.</p>
@@ -449,5 +493,7 @@ function drawLine(ctx, points, width, height, color, minY, maxY, xLabel, yLabel)
 }
 
 loadContent();
+
+
 
 

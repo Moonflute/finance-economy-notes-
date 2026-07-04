@@ -567,3 +567,58 @@ mark { padding: 1px 3px; border-radius: 4px; background: #ffe08a; color: inherit
   .graph-node::before { display: none; }
   .regulation-flow { grid-template-columns: 1fr; }
 }
+
+.section-prose {
+  max-width: 920px;
+}
+
+.section-prose > :first-child {
+  margin-top: 0;
+}
+
+.concept-card-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(260px, 1fr));
+  gap: 10px;
+  margin-top: 16px;
+}
+
+.concept-card {
+  border: 1px solid #dfe8ec;
+  border-radius: 8px;
+  background: #fbfdfd;
+  overflow: hidden;
+}
+
+.concept-card summary {
+  min-height: 46px;
+  padding: 11px 13px;
+  cursor: pointer;
+  color: #0b5968;
+  font-weight: 800;
+  list-style-position: outside;
+}
+
+.concept-card[open] summary {
+  border-bottom: 1px solid #dfe8ec;
+  background: #eef7f8;
+}
+
+.concept-card-body {
+  padding: 12px 14px;
+  background: #fff;
+}
+
+.concept-card-body > :first-child {
+  margin-top: 0;
+}
+
+.concept-card-body h6 {
+  margin: 18px 0 8px;
+  color: var(--teal);
+  font-size: .98rem;
+}
+
+.concept-card-body ul {
+  padding-left: 18px;
+}
