@@ -25,7 +25,105 @@ function renderNav() {
 
 function renderChapter(slug) {
   const chapter = guideData.chapters.find((item) => item.slug === slug);
+  if (chapter.title.toLowerCase() === "dictionary") {
+    renderDictionaryChapter(chapter);
+    return;
+  }
   document.querySelector("#chapterContent").innerHTML = chapter.html;
+}
+
+function escapeHtml(value) {
+  return value
+    .replaceAll("&", "&amp;")
+    .replaceAll("<", "&lt;")
+    .replaceAll(">", "&gt;")
+    .replaceAll('"', "&quot;");
+}
+
+function getDictionaryEntries(markdown) {
+  const entries = [];
+  let category = "기타";
+  markdown.split("\n").forEach((rawLine) => {
+    const line = rawLine.trim();
+    if (line.startsWith("## ")) {
+      category = line.replace(/^##\s+/, "");
+      return;
+    }
+    if (!line || line.startsWith("#") || !line.includes(" : ")) return;
+    const [term, ...definitionParts] = line.split(" : ");
+    entries.push({
+      category,
+      term: term.trim(),
+      definition: definitionParts.join(" : ").trim(),
+    });
+  });
+  return entries;
+}
+
+function renderDictionaryChapter(chapter) {
+  const entries = getDictionaryEntries(chapter.markdown);
+  const host = document.querySelector("#chapterContent");
+  host.innerHTML = `
+    <h1>${escapeHtml(chapter.title)}</h1>
+    <p>중요 개념을 빠르게 리마인드하기 위한 한 줄 사전이다. 검색어는 용어명과 설명을 함께 찾는다.</p>
+    <div class="dictionary-search" role="search">
+      <label for="dictionarySearch">Search dictionary</label>
+      <input id="dictionarySearch" type="search" placeholder="GDP, 듀레이션, 적합성 원칙..." autocomplete="off">
+      <span id="dictionaryCount">${entries.length} terms</span>
+    </div>
+    <div id="dictionaryResults" class="dictionary-results"></div>
+  `;
+
+  const input = host.querySelector("#dictionarySearch");
+  const results = host.querySelector("#dictionaryResults");
+  const count = host.querySelector("#dictionaryCount");
+
+  function paint() {
+    const query = input.value.trim().toLowerCase();
+    const filtered = entries.filter((entry) => {
+      const haystack = `${entry.category} ${entry.term} ${entry.definition}`.toLowerCase();
+      return !query || haystack.includes(query);
+    });
+    count.textContent = `${filtered.length} / ${entries.length} terms`;
+    results.innerHTML = renderDictionaryResults(filtered, query);
+  }
+
+  input.addEventListener("input", paint);
+  paint();
+}
+
+function renderDictionaryResults(entries, query) {
+  if (entries.length === 0) {
+    return `<p class="dictionary-empty">검색 결과가 없습니다.</p>`;
+  }
+  const grouped = new Map();
+  entries.forEach((entry) => {
+    if (!grouped.has(entry.category)) grouped.set(entry.category, []);
+    grouped.get(entry.category).push(entry);
+  });
+
+  return [...grouped.entries()]
+    .map(([category, categoryEntries]) => `
+      <section class="dictionary-group">
+        <h2>${escapeHtml(category)}</h2>
+        <dl>
+          ${categoryEntries.map((entry) => `
+            <div class="dictionary-entry">
+              <dt>${highlightTerm(entry.term, query)}</dt>
+              <dd>${highlightTerm(entry.definition, query)}</dd>
+            </div>
+          `).join("")}
+        </dl>
+      </section>
+    `)
+    .join("");
+}
+
+function highlightTerm(value, query) {
+  const escaped = escapeHtml(value);
+  if (!query) return escaped;
+  const safeQuery = query.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+  return escaped.replace(new RegExp(safeQuery, "gi"), (match) => `<mark>${match}</mark>`);
 }
 
 function pct(value) {
@@ -143,4 +241,3 @@ function drawLine(ctx, points, width, height, color, minY, maxY, xLabel, yLabel)
 
 loadContent();
 bindTools();
-
