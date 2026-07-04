@@ -1,0 +1,85 @@
+<!doctype html>
+<html lang="ko">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>대한민국 금융경제 통합 가이드</title>
+  <link rel="stylesheet" href="styles.css">
+</head>
+<body>
+  <aside class="sidebar">
+    <div class="brand">
+      <span class="brand-mark">₩</span>
+      <div>
+        <strong>Finance Guide</strong>
+        <small>경제 · 금융 · 재무설계 · 법률</small>
+      </div>
+    </div>
+    <nav id="chapterNav" aria-label="챕터"></nav>
+    <a class="print-link" href="finance-guide-print.html">PDF용 문서</a>
+  </aside>
+
+  <main class="app-shell">
+    <section class="hero">
+      <div>
+        <p class="eyebrow">Certification-grade review archive</p>
+        <h1>대한민국 금융경제 통합 가이드</h1>
+        <p>금융투자분석사, 은행 FP, 투자자산운용사, 회계관리 2급 학습 내용을 한 번에 다시 꺼내볼 수 있도록 구조화합니다.</p>
+      </div>
+      <div class="market-board" aria-label="시장과 재무설계 핵심 지표">
+        <div><span>금리</span><strong id="rateSignal">+25bp</strong></div>
+        <div><span>듀레이션</span><strong id="durationSignal">4.7y</strong></div>
+        <div><span>CAPM</span><strong id="capmSignal">8.2%</strong></div>
+        <div><span>은퇴준비</span><strong id="retireSignal">72%</strong></div>
+      </div>
+    </section>
+
+    <section class="tool-band" aria-label="인터랙티브 계산 도구">
+      <article class="tool-panel">
+        <header>
+          <h2>채권 가격 민감도</h2>
+          <p>수정듀레이션과 볼록성으로 금리 변화에 따른 가격 변화율을 근사합니다.</p>
+        </header>
+        <div class="controls">
+          <label>수정듀레이션 <input id="durationInput" type="range" min="1" max="12" step="0.1" value="5"></label>
+          <label>볼록성 <input id="convexityInput" type="range" min="5" max="120" step="1" value="45"></label>
+          <label>금리 변화(bp) <input id="bpInput" type="range" min="-200" max="200" step="5" value="50"></label>
+        </div>
+        <div class="result-line"><span>예상 가격 변화율</span><strong id="bondResult">-2.44%</strong></div>
+        <canvas id="bondCanvas" width="620" height="240"></canvas>
+      </article>
+
+      <article class="tool-panel">
+        <header>
+          <h2>CAPM 기대수익률</h2>
+          <p>무위험수익률, 시장위험프리미엄, 베타를 조합해 요구수익률을 계산합니다.</p>
+        </header>
+        <div class="controls">
+          <label>무위험수익률 <input id="rfInput" type="range" min="0" max="7" step="0.1" value="3.2"></label>
+          <label>시장위험프리미엄 <input id="mrpInput" type="range" min="1" max="10" step="0.1" value="5"></label>
+          <label>베타 <input id="betaInput" type="range" min="0.2" max="2" step="0.05" value="1"></label>
+        </div>
+        <div class="result-line"><span>기대수익률</span><strong id="capmResult">8.20%</strong></div>
+        <canvas id="capmCanvas" width="620" height="240"></canvas>
+      </article>
+    </section>
+
+    <section class="content-layout">
+      <article id="chapterContent" class="chapter-content"></article>
+      <aside class="source-note">
+        <h2>보강 기준</h2>
+        <p>세제·법률·시장제도는 국세청, 국가법령정보센터, 금융위원회, 금융감독원, 한국거래소 등 공식 출처 확인 후 반영합니다.</p>
+        <ul>
+          <li>법령: 최신 조문 기준</li>
+          <li>세금: 과세연도별 확인</li>
+          <li>상품: 판매규제와 세제 분리</li>
+          <li>투자: 모형과 한계 함께 설명</li>
+        </ul>
+      </aside>
+    </section>
+  </main>
+
+  <script src="app.js"></script>
+</body>
+</html>
+
