@@ -82,16 +82,11 @@ function renderStudyChapter(chapter) {
   const meta = chapterMeta[chapter.slug] || {};
   const sections = splitChapterSections(chapter.html);
   const host = document.querySelector("#chapterContent");
-  const aside = document.querySelector("#chapterAside");
   host.innerHTML = `
     <section class="chapter-head">
       <p class="eyebrow">${escapeHtml(meta.kicker || "concept reference")}</p>
       <h2>${escapeHtml(meta.label || chapter.title)}</h2>
       <p>${escapeHtml(meta.summary || "원자료 기반 개념 레퍼런스입니다.")}</p>
-    </section>
-    <section class="section-block">
-      <h3>핵심 관점</h3>
-      <ul class="point-list">${(meta.points || []).map((point) => `<li>${escapeHtml(point)}</li>`).join("")}</ul>
     </section>
     <section class="section-block">
       <h3>개념 관계도</h3>
@@ -107,7 +102,6 @@ function renderStudyChapter(chapter) {
       <article id="subchapterBody" class="subchapter-body"></article>
     </section>
   `;
-  aside.innerHTML = renderAside(meta, sections);
   bindSectionExplorer(sections);
   bindChapterTools(meta.tool);
 }
@@ -348,7 +342,6 @@ function updatePlanningTool() {
 function renderDictionaryChapter(chapter) {
   const entries = getDictionaryEntries(chapter.markdown);
   const host = document.querySelector("#chapterContent");
-  document.querySelector("#chapterAside").innerHTML = `<h2>검색 팁</h2><p>한글 용어, 영문 약어, 설명 문장 일부로 검색할 수 있습니다.</p>`;
   host.innerHTML = `
     <section class="chapter-head">
       <p class="eyebrow">dictionary</p>
