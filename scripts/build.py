@@ -12,6 +12,7 @@ ROOT = Path(__file__).resolve().parents[1]
 CONTENT_DIR = ROOT / "content" / "chapters"
 SITE_DIR = ROOT / "site"
 DIST_DIR = ROOT / "dist"
+VERSION_FILE = ROOT / "VERSION"
 
 
 @dataclass
@@ -79,7 +80,7 @@ def markdown_to_html(markdown: str) -> str:
             level = len(heading.group(1))
             out.append(f"<h{level}>{inline_markdown(heading.group(2))}</h{level}>")
             continue
-        bullet = re.match(r"^-\s+(.+)$", line)
+        bullet = re.match(r"^\s*[-*]\s+(.+)$", line)
         if bullet:
             if in_ol:
                 out.append("</ol>")
@@ -89,7 +90,7 @@ def markdown_to_html(markdown: str) -> str:
                 in_ul = True
             out.append(f"<li>{inline_markdown(bullet.group(1))}</li>")
             continue
-        numbered = re.match(r"^\d+\.\s+(.+)$", line)
+        numbered = re.match(r"^\s*\d+\.\s+(.+)$", line)
         if numbered:
             if in_ul:
                 out.append("</ul>")
@@ -116,11 +117,20 @@ def read_chapters() -> list[Chapter]:
     return chapters
 
 
+def read_version() -> str:
+    if not VERSION_FILE.exists():
+        return "0.0.0"
+    version = VERSION_FILE.read_text(encoding="utf-8-sig").strip()
+    return version or "0.0.0"
+
+
 def build() -> None:
     DIST_DIR.mkdir(exist_ok=True)
     chapters = read_chapters()
+    version = read_version()
     data = {
         "title": "대한민국 금융경제 통합 가이드",
+        "version": version,
         "chapters": [
             {"slug": chapter.slug, "title": chapter.title, "html": chapter.html, "markdown": chapter.markdown}
             for chapter in chapters
@@ -138,13 +148,14 @@ def build() -> None:
 
     (DIST_DIR / "content.json").write_text(json.dumps(data, ensure_ascii=False, indent=2), encoding="utf-8")
 
-    print_html = render_print_html(chapters)
+    print_html = render_print_html(chapters, version)
     (DIST_DIR / "finance-guide-print.html").write_text(print_html, encoding="utf-8")
     print(f"Built {DIST_DIR}")
 
 
-def render_print_html(chapters: list[Chapter]) -> str:
+def render_print_html(chapters: list[Chapter], version: str) -> str:
     body = "\n".join(f"<section class=\"print-chapter\">{chapter.html}</section>" for chapter in chapters)
+    escaped_version = html.escape(version)
     return f"""<!doctype html>
 <html lang="ko">
 <head>
@@ -156,7 +167,7 @@ def render_print_html(chapters: list[Chapter]) -> str:
 <body class="print-doc">
   <header class="print-cover">
     <p class="eyebrow">Finance Knowledge Guide</p>
-    <h1>대한민국 금융경제 통합 가이드</h1>
+    <h1>대한민국 금융경제 통합 가이드 <span class="app-version">v {escaped_version}</span></h1>
     <p>경제, 금융, 재무설계, 법률을 자격증 보유자 수준으로 연결해 정리한 학습·설명용 문서</p>
   </header>
   <main>{body}</main>
@@ -167,4 +178,3 @@ def render_print_html(chapters: list[Chapter]) -> str:
 
 if __name__ == "__main__":
     build()
-

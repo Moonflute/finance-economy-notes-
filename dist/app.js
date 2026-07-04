@@ -5,8 +5,15 @@ const money = new Intl.NumberFormat("ko-KR", { maximumFractionDigits: 2 });
 async function loadContent() {
   const response = await fetch("content.json");
   guideData = await response.json();
+  renderAppVersion();
   renderNav();
   renderChapter(guideData.chapters[0].slug);
+}
+
+function renderAppVersion() {
+  const versionNode = document.querySelector("#appVersion");
+  if (!versionNode) return;
+  versionNode.textContent = `v ${guideData.version || "0.0.0"}`;
 }
 
 function renderNav() {
@@ -241,3 +248,6 @@ function drawLine(ctx, points, width, height, color, minY, maxY, xLabel, yLabel)
 
 loadContent();
 bindTools();
+
+
+
