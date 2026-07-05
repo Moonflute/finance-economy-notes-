@@ -1030,3 +1030,47 @@ mark { padding: 1px 3px; border-radius: 4px; background: #ffe08a; color: inherit
   .tax-layout { grid-template-columns: 1fr; }
   .nested-money div { margin-left: 0 !important; }
 }
+
+.tax-tabs {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin: 12px 0 14px;
+}
+.tax-tabs button {
+  min-height: 38px;
+  padding: 8px 12px;
+  border: 1px solid #cfe0e6;
+  border-radius: 8px;
+  background: #fff;
+  color: #344054;
+  cursor: pointer;
+  font: inherit;
+  font-weight: 700;
+}
+.tax-tabs button.active {
+  border-color: var(--teal);
+  background: #eaf7f8;
+  color: #0b5968;
+}
+.tax-panel { display: none; }
+.tax-panel.active { display: block; }
+.tax-formula {
+  margin-top: 10px;
+  padding: 10px 12px;
+  border: 1px dashed #c9dce2;
+  border-radius: 8px;
+  background: #fbfdfd;
+  color: #41505f;
+  font-size: .92rem;
+}
+.tax-inputs select {
+  width: 100%;
+  min-height: 38px;
+  margin-top: 5px;
+  border: 1px solid #d8e4e8;
+  border-radius: 8px;
+  background: #fff;
+  color: var(--ink);
+  font: inherit;
+}

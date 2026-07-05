@@ -329,12 +329,95 @@ function renderPlanningProcessVisual() {
 function renderTaxVisual() {
   return `
     <section class="visual-block tax-tool" data-visual="tax">
-      <div class="visual-head"><span>계산</span><h3>소득·세금 빠른 체크</h3></div>
-      <div class="tax-layout">
-        <div class="tax-inputs"><label>근로/사업 등 종합소득금액(만원)<input id="incomeAmount" type="number" value="6000" min="0"></label><label>기본공제 등 공제액(만원)<input id="deductionAmount" type="number" value="150" min="0"></label><label>ISA 연 납입액(만원)<input id="isaAmount" type="number" value="2000" min="0"></label><label><input id="isaEligible" type="checkbox" checked> ISA 가입요건 충족 가정</label></div>
-        <div class="tax-results"><div><span>과세표준</span><strong id="taxBaseResult">-</strong></div><div><span>산출세액 추정</span><strong id="incomeTaxResult">-</strong></div><div><span>적용 최고구간</span><strong id="taxRateResult">-</strong></div><div><span>ISA 절세 메모</span><strong id="isaResult">-</strong></div></div>
+      <div class="visual-head">
+        <span>계산</span>
+        <h3>세금·계좌 빠른 계산</h3>
+        <p>자격증 정리용 간이 계산입니다. 실제 신고는 최신 법령, 보유기간, 공제요건, 지방세 특례를 별도로 확인해야 합니다.</p>
       </div>
-      <div class="tax-calendar"><b>세금 일정 메모</b><span>종합소득세: 매년 5월 신고·납부</span><span>상속세: 상속개시일이 속하는 달의 말일부터 6개월</span><span>증여세: 증여일이 속하는 달의 말일부터 3개월</span></div>
+      <div class="tax-tabs" data-tax-tabs>
+        <button type="button" class="active" data-tax-panel="income">종합소득</button>
+        <button type="button" data-tax-panel="capitalGain">양도소득</button>
+        <button type="button" data-tax-panel="isa">ISA</button>
+        <button type="button" data-tax-panel="gift">증여</button>
+      </div>
+
+      <div class="tax-panel active" data-tax-panel-view="income">
+        <div class="tax-layout">
+          <div class="tax-inputs">
+            <label>종합소득금액(만원)<input id="incomeAmount" type="number" value="6000" min="0"></label>
+            <label>소득공제 합계(만원)<input id="deductionAmount" type="number" value="150" min="0"></label>
+            <label>세액공제·감면(만원)<input id="taxCreditAmount" type="number" value="0" min="0"></label>
+          </div>
+          <div class="tax-results">
+            <div><span>과세표준</span><strong id="taxBaseResult">-</strong></div>
+            <div><span>산출세액</span><strong id="incomeTaxResult">-</strong></div>
+            <div><span>지방소득세 포함</span><strong id="incomeLocalTaxResult">-</strong></div>
+            <div><span>최고세율 구간</span><strong id="taxRateResult">-</strong></div>
+          </div>
+        </div>
+        <div class="tax-formula">과세표준 = 종합소득금액 - 소득공제 / 결정세액 = 산출세액 - 세액공제·감면</div>
+      </div>
+
+      <div class="tax-panel" data-tax-panel-view="capitalGain">
+        <div class="tax-layout">
+          <div class="tax-inputs">
+            <label>양도가액(만원)<input id="saleAmount" type="number" value="90000" min="0"></label>
+            <label>취득가액(만원)<input id="purchaseAmount" type="number" value="65000" min="0"></label>
+            <label>필요경비(만원)<input id="gainExpenseAmount" type="number" value="1200" min="0"></label>
+            <label>장기보유특별공제율(%)<input id="longDeductionRate" type="number" value="0" min="0" max="80"></label>
+          </div>
+          <div class="tax-results">
+            <div><span>양도차익</span><strong id="gainResult">-</strong></div>
+            <div><span>양도소득금액</span><strong id="gainIncomeResult">-</strong></div>
+            <div><span>과세표준</span><strong id="gainBaseResult">-</strong></div>
+            <div><span>기본세율 산출세액</span><strong id="gainTaxResult">-</strong></div>
+          </div>
+        </div>
+        <div class="tax-formula">양도차익 = 양도가액 - 취득가액 - 필요경비 / 과세표준 = 양도소득금액 - 기본공제 250만원</div>
+      </div>
+
+      <div class="tax-panel" data-tax-panel-view="isa">
+        <div class="tax-layout">
+          <div class="tax-inputs">
+            <label>연 납입액(만원)<input id="isaAnnualAmount" type="number" value="2000" min="0"></label>
+            <label>운용기간(년)<input id="isaYears" type="number" value="3" min="1"></label>
+            <label>예상 순이익(만원)<input id="isaProfitAmount" type="number" value="300" min="0"></label>
+            <label>비과세 한도(만원)<select id="isaFreeLimit"><option value="200">일반형 200</option><option value="400">서민형/농어민 400</option></select></label>
+          </div>
+          <div class="tax-results">
+            <div><span>총 납입액</span><strong id="isaTotalContribution">-</strong></div>
+            <div><span>일반 과세 추정</span><strong id="isaNormalTax">-</strong></div>
+            <div><span>ISA 과세 추정</span><strong id="isaTax">-</strong></div>
+            <div><span>세제효과</span><strong id="isaSavingResult">-</strong></div>
+          </div>
+        </div>
+        <div class="tax-formula">ISA는 계좌 내 손익통산 후 비과세 한도 초과분에 저율 분리과세를 적용하는 구조로 정리한다.</div>
+      </div>
+
+      <div class="tax-panel" data-tax-panel-view="gift">
+        <div class="tax-layout">
+          <div class="tax-inputs">
+            <label>증여재산가액(만원)<input id="giftAmount" type="number" value="12000" min="0"></label>
+            <label>관계별 공제<select id="giftDeductionType"><option value="5000">성년 자녀 5,000</option><option value="2000">미성년 자녀 2,000</option><option value="60000">배우자 60,000</option><option value="1000">기타 친족 1,000</option><option value="0">공제 없음</option></select></label>
+            <label>신고세액공제율(%)<input id="giftReportCreditRate" type="number" value="3" min="0" max="10"></label>
+          </div>
+          <div class="tax-results">
+            <div><span>과세표준</span><strong id="giftBaseResult">-</strong></div>
+            <div><span>산출세액</span><strong id="giftTaxResult">-</strong></div>
+            <div><span>신고공제 후</span><strong id="giftAfterCreditResult">-</strong></div>
+            <div><span>지방소득세 없음</span><strong>국세 기준</strong></div>
+          </div>
+        </div>
+        <div class="tax-formula">증여세 과세표준 = 증여재산가액 - 증여재산공제. 동일인 증여는 10년 합산 여부를 별도 확인한다.</div>
+      </div>
+
+      <div class="tax-calendar">
+        <b>다음 세금 일정</b>
+        <span id="nextIncomeDue">종합소득세: -</span>
+        <span id="nextVatDue">부가가치세 예정/확정: 1월·4월·7월·10월 점검</span>
+        <span>상속세: 상속개시일이 속하는 달의 말일부터 6개월</span>
+        <span>증여세: 증여일이 속하는 달의 말일부터 3개월</span>
+      </div>
     </section>`;
 }
 
@@ -479,28 +562,127 @@ async function loadMarketTicker() {
 }
 
 function bindTaxTool() {
-  const ids = ["incomeAmount", "deductionAmount", "isaAmount", "isaEligible"];
-  if (!document.querySelector("#incomeAmount")) return;
-  ids.forEach((id) => document.querySelector(`#${id}`).addEventListener("input", updateTaxTool));
-  ids.forEach((id) => document.querySelector(`#${id}`).addEventListener("change", updateTaxTool));
+  if (!document.querySelector("[data-visual='tax']")) return;
+  document.querySelectorAll("[data-tax-tabs] button").forEach((button) => {
+    button.addEventListener("click", () => {
+      const panel = button.dataset.taxPanel;
+      document.querySelectorAll("[data-tax-tabs] button").forEach((item) => item.classList.toggle("active", item === button));
+      document.querySelectorAll("[data-tax-panel-view]").forEach((view) => view.classList.toggle("active", view.dataset.taxPanelView === panel));
+    });
+  });
+  [
+    "incomeAmount", "deductionAmount", "taxCreditAmount",
+    "saleAmount", "purchaseAmount", "gainExpenseAmount", "longDeductionRate",
+    "isaAnnualAmount", "isaYears", "isaProfitAmount", "isaFreeLimit",
+    "giftAmount", "giftDeductionType", "giftReportCreditRate"
+  ].forEach((id) => {
+    const node = document.querySelector(`#${id}`);
+    if (!node) return;
+    node.addEventListener("input", updateTaxTool);
+    node.addEventListener("change", updateTaxTool);
+  });
   updateTaxTool();
+  updateTaxCalendar();
 }
 
 function updateTaxTool() {
-  const income = Number(document.querySelector("#incomeAmount").value || 0);
-  const deduction = Number(document.querySelector("#deductionAmount").value || 0);
+  updateIncomeTaxTool();
+  updateCapitalGainTaxTool();
+  updateIsaTaxTool();
+  updateGiftTaxTool();
+}
+
+function calculateProgressiveTax(base, brackets) {
+  const bracket = brackets.find(([limit]) => base <= limit) || brackets[brackets.length - 1];
+  return { tax: Math.max(0, base * bracket[1] - bracket[2]), rate: bracket[1], limit: bracket[0] };
+}
+
+function updateIncomeTaxTool() {
+  const income = Number(document.querySelector("#incomeAmount")?.value || 0);
+  const deduction = Number(document.querySelector("#deductionAmount")?.value || 0);
+  const credit = Number(document.querySelector("#taxCreditAmount")?.value || 0);
   const base = Math.max(0, income - deduction);
-  const brackets = [
-    [1400, 0.06, 0], [5000, 0.15, 126], [8800, 0.24, 576], [15000, 0.35, 1544], [30000, 0.38, 1994], [50000, 0.40, 2594], [100000, 0.42, 3594], [Infinity, 0.45, 6594]
-  ];
-  const bracket = brackets.find(([limit]) => base <= limit);
-  const tax = Math.max(0, base * bracket[1] - bracket[2]);
-  const isaAmount = Number(document.querySelector("#isaAmount").value || 0);
-  const eligible = document.querySelector("#isaEligible").checked;
+  const result = calculateProgressiveTax(base, incomeTaxBrackets());
+  const decided = Math.max(0, result.tax - credit);
   document.querySelector("#taxBaseResult").textContent = `${money.format(base)}만원`;
-  document.querySelector("#incomeTaxResult").textContent = `${money.format(tax)}만원`;
-  document.querySelector("#taxRateResult").textContent = `${Math.round(bracket[1] * 100)}% 구간`;
-  document.querySelector("#isaResult").textContent = eligible ? `납입 ${money.format(Math.min(isaAmount, 2000))}만원 기준 세제계좌 검토` : "가입요건 확인 필요";
+  document.querySelector("#incomeTaxResult").textContent = `${money.format(decided)}만원`;
+  document.querySelector("#incomeLocalTaxResult").textContent = `${money.format(decided * 1.1)}만원`;
+  document.querySelector("#taxRateResult").textContent = `${Math.round(result.rate * 100)}% 구간`;
+}
+
+function updateCapitalGainTaxTool() {
+  const sale = Number(document.querySelector("#saleAmount")?.value || 0);
+  const purchase = Number(document.querySelector("#purchaseAmount")?.value || 0);
+  const expense = Number(document.querySelector("#gainExpenseAmount")?.value || 0);
+  const longRate = Number(document.querySelector("#longDeductionRate")?.value || 0) / 100;
+  const gain = Math.max(0, sale - purchase - expense);
+  const gainIncome = Math.max(0, gain - gain * longRate);
+  const base = Math.max(0, gainIncome - 250);
+  const result = calculateProgressiveTax(base, incomeTaxBrackets());
+  document.querySelector("#gainResult").textContent = `${money.format(gain)}만원`;
+  document.querySelector("#gainIncomeResult").textContent = `${money.format(gainIncome)}만원`;
+  document.querySelector("#gainBaseResult").textContent = `${money.format(base)}만원`;
+  document.querySelector("#gainTaxResult").textContent = `${money.format(result.tax)}만원`;
+}
+
+function updateIsaTaxTool() {
+  const annual = Number(document.querySelector("#isaAnnualAmount")?.value || 0);
+  const years = Number(document.querySelector("#isaYears")?.value || 0);
+  const profit = Number(document.querySelector("#isaProfitAmount")?.value || 0);
+  const freeLimit = Number(document.querySelector("#isaFreeLimit")?.value || 200);
+  const totalContribution = Math.min(annual, 2000) * Math.max(0, years);
+  const normalTax = profit * 0.154;
+  const isaTax = Math.max(0, profit - freeLimit) * 0.099;
+  const saving = Math.max(0, normalTax - isaTax);
+  document.querySelector("#isaTotalContribution").textContent = `${money.format(totalContribution)}만원`;
+  document.querySelector("#isaNormalTax").textContent = `${money.format(normalTax)}만원`;
+  document.querySelector("#isaTax").textContent = `${money.format(isaTax)}만원`;
+  document.querySelector("#isaSavingResult").textContent = `${money.format(saving)}만원 절감`;
+}
+
+function updateGiftTaxTool() {
+  const gift = Number(document.querySelector("#giftAmount")?.value || 0);
+  const deduction = Number(document.querySelector("#giftDeductionType")?.value || 0);
+  const creditRate = Number(document.querySelector("#giftReportCreditRate")?.value || 0) / 100;
+  const base = Math.max(0, gift - deduction);
+  const result = calculateProgressiveTax(base, giftTaxBrackets());
+  const afterCredit = Math.max(0, result.tax - result.tax * creditRate);
+  document.querySelector("#giftBaseResult").textContent = `${money.format(base)}만원`;
+  document.querySelector("#giftTaxResult").textContent = `${money.format(result.tax)}만원`;
+  document.querySelector("#giftAfterCreditResult").textContent = `${money.format(afterCredit)}만원`;
+}
+
+function updateTaxCalendar() {
+  const node = document.querySelector("#nextIncomeDue");
+  if (!node) return;
+  const today = new Date();
+  let year = today.getFullYear();
+  let due = new Date(year, 4, 31);
+  if (today > due) due = new Date(year + 1, 4, 31);
+  node.textContent = `종합소득세: ${due.getFullYear()}년 5월 31일 신고·납부`;
+}
+
+function incomeTaxBrackets() {
+  return [
+    [1400, 0.06, 0],
+    [5000, 0.15, 126],
+    [8800, 0.24, 576],
+    [15000, 0.35, 1544],
+    [30000, 0.38, 1994],
+    [50000, 0.40, 2594],
+    [100000, 0.42, 3594],
+    [Infinity, 0.45, 6594]
+  ];
+}
+
+function giftTaxBrackets() {
+  return [
+    [10000, 0.10, 0],
+    [50000, 0.20, 1000],
+    [100000, 0.30, 6000],
+    [300000, 0.40, 16000],
+    [Infinity, 0.50, 46000]
+  ];
 }
 
 function renderDictionaryChapter(chapter) {
