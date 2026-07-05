@@ -6,3 +6,4 @@ Thumbs.db
 .venv/
 node_modules/
 
+.codex-remote-attachments/
