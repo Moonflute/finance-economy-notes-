@@ -128,156 +128,379 @@ function makeHeadingId(text, index) {
   return `section-${index}-${String(text).trim().replace(/[^0-9A-Za-z?-?]+/g, "-").replace(/^-|-$/g, "").slice(0, 40)}`;
 }
 
+
 function insertInlineTool(doc, toolType) {
-  const toolHtml = renderTool(toolType);
-  if (!toolHtml) return;
-  const rules = {
-    economics: ["통화 정책", "재정 및 통화정책"],
-    finance: ["채권 투자", "채권"],
-    planning: ["재무설계 프로세스", "재무설계"],
-    law: ["금융소비자 보호법", "금융소비자"],
-  };
-  const targets = rules[toolType] || [];
-  const headings = [...doc.querySelectorAll("h4, h5")];
-  const target = headings.find((heading) => targets.some((keyword) => heading.textContent.includes(keyword))) || headings[1] || headings[0];
-  if (!target) return;
-  const wrapper = document.createElement("div");
-  wrapper.innerHTML = toolHtml;
-  target.insertAdjacentElement("afterend", wrapper.firstElementChild);
+  collapseSummaryBlock(doc);
+  if (toolType === "economics") insertEconomicsVisuals(doc);
+  if (toolType === "finance") insertFinanceVisuals(doc);
+  if (toolType === "planning") insertPlanningVisuals(doc);
+  if (toolType === "law") insertLawVisuals(doc);
 }
 
-function renderFrameworkBlock(html) {
-  const doc = document.createElement("div");
-  doc.innerHTML = html.replace(/<h1>.*?<\/h1>/, "");
-  const heading = [...doc.querySelectorAll("h2")].find((node) => node.textContent.trim() === "개념 프레임");
-  if (!heading) return "";
+function collapseSummaryBlock(doc) {
+  const heading = [...doc.querySelectorAll("h2")].find((node) => ["심화 정리", "요약"].includes(node.textContent.trim()));
+  if (!heading) return;
   const parts = [];
   let node = heading.nextElementSibling;
-  while (node && !node.matches("h2, h3, h4")) {
+  while (node && !node.matches("h2, h4")) {
+    const next = node.nextElementSibling;
     parts.push(node.outerHTML);
-    node = node.nextElementSibling;
+    node.remove();
+    node = next;
   }
-  return `
-    <section class="section-block framework-block">
-      <h3>개념 프레임</h3>
-      <div class="framework-body">${parts.join("")}</div>
-    </section>
-  `;
+  const details = document.createElement("details");
+  details.className = "summary-toggle";
+  details.innerHTML = `<summary>요약</summary><div class="summary-body">${parts.join("")}</div>`;
+  heading.replaceWith(details);
 }
-function renderTool(type) {
-  if (type === "economics") return `
-    <section class="tool-zone">
-      <div class="tool-copy">
-        <h3>금리·정책 전달경로</h3>
-        <p>거시 변수 하나가 움직일 때 성장, 물가, 금리, 환율로 이어지는 일반적 전달 방향을 시각적으로 정리합니다.</p>
-      </div>
-      <div class="segmented" data-tool="macro">
-        <button class="active" data-scenario="rateCut">금리 인하</button>
-        <button data-scenario="rateHike">금리 인상</button>
-        <button data-scenario="fiscalExpansion">재정 확대</button>
-        <button data-scenario="oilShock">유가 충격</button>
-      </div>
-      <div id="macroScenario" class="scenario-grid"></div>
-    </section>`;
 
-  if (type === "finance") return `
-    <section class="tool-zone two-col-tools">
+function insertAfterHeading(doc, keywords, html, levelSelector = "h4, h5") {
+  const headings = [...doc.querySelectorAll(levelSelector)];
+  const target = headings.find((heading) => keywords.some((keyword) => heading.textContent.includes(keyword)));
+  if (!target) return false;
+  const wrapper = document.createElement("div");
+  wrapper.innerHTML = html.trim();
+  target.insertAdjacentElement("afterend", wrapper.firstElementChild);
+  return true;
+}
+
+function insertAtTop(doc, html) {
+  const wrapper = document.createElement("div");
+  wrapper.innerHTML = html.trim();
+  doc.insertBefore(wrapper.firstElementChild, doc.firstElementChild);
+}
+
+function insertEconomicsVisuals(doc) {
+  insertAfterHeading(doc, ["거시경제의 시계", "시장/주체"], renderMacroSystemVisual());
+  insertAfterHeading(doc, ["생산물/노동/인플레이션", "생산물 시장"], renderAdAsVisual());
+  insertAfterHeading(doc, ["재정 및 통화정책", "통화 정책"], renderPolicyVisual());
+  insertAfterHeading(doc, ["이자율 및 환율", "이자율"], renderYieldFxVisual());
+  insertAfterHeading(doc, ["화폐의 수요", "화폐"], renderMoneyAggregateVisual());
+}
+
+function insertFinanceVisuals(doc) {
+  insertAtTop(doc, renderAssetUniverseVisual());
+  insertAfterHeading(doc, ["채권 투자", "채권"], renderBondVisual());
+  insertAfterHeading(doc, ["재무제표 분석", "재무제표"], renderStatementVisual());
+  insertAfterHeading(doc, ["주식 투자", "주식"], renderMarketIndexVisual());
+}
+
+function insertPlanningVisuals(doc) {
+  insertAfterHeading(doc, ["세무 전략", "조세"], renderTaxVisual());
+  insertAfterHeading(doc, ["개인 재무설계", "재무설계"], renderPlanningProcessVisual());
+}
+
+function insertLawVisuals(doc) {
+  insertAfterHeading(doc, ["금융소비자 보호법", "금융소비자"], renderSalesRuleVisual());
+}
+
+function renderMacroSystemVisual() {
+  return `
+    <section class="visual-block macro-system">
+      <div class="visual-head"><span>도식</span><h3>거시경제의 4대 시장과 5대 주체</h3></div>
+      <div class="market-agent-grid">
+        <div class="market-card"><strong>생산물시장</strong><span>실질 GDP · 물가</span></div>
+        <div class="market-card"><strong>노동시장</strong><span>고용량 · 실질임금</span></div>
+        <div class="market-card"><strong>대부자금시장</strong><span>실질이자율 · 자금거래량</span></div>
+        <div class="market-card"><strong>외환시장</strong><span>환율 · 외환거래량</span></div>
+      </div>
+      <div class="agent-row"><span>가계</span><span>기업</span><span>정부</span><span>해외</span><span>중앙은행</span></div>
+      <div class="formula-board">
+        <div><b>지출 GDP</b><code>Y = C + I + G + (X - M)</code></div>
+        <div><b>대외균형</b><code>X - M = (T - G) + (S - I)</code></div>
+        <div><b>해석</b><p>경상수지는 국내 총저축과 국내투자의 차이로 읽는다.</p></div>
+      </div>
+      <div class="venn-row">
+        <div class="venn-card"><b>GDP</b><span>국내에서 생산된 최종재·서비스</span></div>
+        <div class="venn-card"><b>GNP</b><span>GDP + 국외순수취요소소득</span></div>
+        <div class="venn-card"><b>GNI</b><span>GNP에 교역조건 효과를 반영한 국민소득</span></div>
+      </div>
+    </section>`;
+}
+
+function renderAdAsVisual() {
+  return `
+    <section class="visual-block interactive-visual" data-visual="adas">
+      <div class="visual-head"><span>그래프</span><h3>AD-AS와 노동·필립스 곡선</h3></div>
+      <div class="segmented compact" data-tool="adas">
+        <button class="active" data-shock="demandUp">총수요 증가</button>
+        <button data-shock="supplyDown">총공급 감소</button>
+        <button data-shock="laborDemand">노동수요 증가</button>
+        <button data-shock="phillips">단기 필립스</button>
+      </div>
+      <canvas id="adasCanvas" width="760" height="320"></canvas>
+      <div id="adasNotes" class="visual-notes"></div>
+    </section>`;
+}
+
+function renderPolicyVisual() {
+  return `
+    <section class="visual-block policy-flow" data-visual="policy">
+      <div class="visual-head"><span>전달경로</span><h3>재정·통화정책 파급경로</h3></div>
+      <div class="segmented compact" data-tool="policy">
+        <button class="active" data-policy="moneyEase">확장적 통화정책</button>
+        <button data-policy="moneyTight">긴축적 통화정책</button>
+        <button data-policy="fiscalEase">확장적 재정정책</button>
+      </div>
+      <div id="policyFlow" class="flow-lane"></div>
+    </section>`;
+}
+
+function renderMoneyAggregateVisual() {
+  return `
+    <section class="visual-block">
+      <div class="visual-head"><span>포함관계</span><h3>통화지표 M1 → M2 → Lf → L</h3></div>
+      <div class="nested-money">
+        <div><b>M1</b><span>현금 + 요구불예금 + 수시입출식</span></div>
+        <div><b>M2</b><span>M1 + 2년 미만 예적금·금융채·MMF·RP</span></div>
+        <div><b>Lf</b><span>M2 + 2년 이상 예적금·금융채·보험상품</span></div>
+        <div><b>L</b><span>Lf + 국채·지방채·회사채·기업어음</span></div>
+      </div>
+    </section>`;
+}
+
+function renderYieldFxVisual() {
+  return `
+    <section class="visual-block theory-grid">
+      <div class="visual-head"><span>분류</span><h3>금리 기간구조와 환율 해석 틀</h3></div>
+      <div class="theory-cards">
+        <article><b>기대이론</b><p>장기금리 = 미래 단기금리 기대의 평균</p></article>
+        <article><b>시장분할이론</b><p>만기별 투자자 수급이 금리 구조를 결정</p></article>
+        <article><b>유동성 프리미엄</b><p>장기채에는 기간위험 보상 요구</p></article>
+        <article><b>선호영역가설</b><p>선호 만기 밖 투자에는 프리미엄 필요</p></article>
+      </div>
+      <div class="formula-board fx-board"><div><b>실질환율</b><code>명목환율 × 해외물가 / 국내물가</code></div><div><b>원화 약세</b><p>수출가격 경쟁력 ↑, 수입물가 ↑, 외화부채 부담 ↑</p></div></div>
+    </section>`;
+}
+
+function renderAssetUniverseVisual() {
+  return `
+    <section class="visual-block asset-universe">
+      <div class="visual-head"><span>지도</span><h3>투자대상 전체 구조</h3></div>
+      <div class="asset-tree">
+        <div class="root">투자대상</div>
+        <div><b>금융상품</b><span>예금 · 채권 · 주식 · 펀드/ETF · 파생상품</span></div>
+        <div><b>비금융/대체</b><span>부동산 · 리츠 · 인프라 · 원자재 · PEF/헤지펀드</span></div>
+        <div><b>평가축</b><span>현금흐름 · 할인율 · 위험프리미엄 · 세금 · 유동성</span></div>
+      </div>
+      <div id="marketTicker" class="market-ticker"><span>시장지수 불러오는 중...</span></div>
+    </section>`;
+}
+
+function renderMarketIndexVisual() {
+  return `
+    <section class="visual-block compact-market">
+      <div class="visual-head"><span>시장</span><h3>대표 지수 확인</h3></div>
+      <p class="muted-copy">KOSPI, NASDAQ 등 주요 지수는 앱에서 준실시간 데이터 로딩을 시도하고, 실패하면 확인 링크를 제공합니다.</p>
+    </section>`;
+}
+
+function renderBondVisual() {
+  return `
+    <section class="visual-block two-col-tools" data-visual="bond">
       <article class="tool-panel">
         <h3>채권가격과 금리 민감도</h3>
-        <div class="controls">
-          <label>수정듀레이션 <input id="durationInput" type="range" min="1" max="12" step="0.1" value="5"></label>
-          <label>볼록성 <input id="convexityInput" type="range" min="5" max="120" step="1" value="45"></label>
-          <label>금리 변화(bp) <input id="bpInput" type="range" min="-200" max="200" step="5" value="50"></label>
-        </div>
+        <div class="formula-board"><div><b>가격</b><code>P = Σ Cₜ/(1+y)ᵗ + F/(1+y)ⁿ</code></div><div><b>근사</b><code>ΔP/P ≈ -D*Δy + 1/2×Convexity×Δy²</code></div></div>
+        <div class="controls"><label>수정듀레이션 <input id="durationInput" type="range" min="1" max="12" step="0.1" value="5"></label><label>볼록성 <input id="convexityInput" type="range" min="5" max="120" step="1" value="45"></label><label>금리 변화(bp) <input id="bpInput" type="range" min="-200" max="200" step="5" value="50"></label></div>
         <div class="result-line"><span>예상 가격 변화율</span><strong id="bondResult">-</strong></div>
         <canvas id="bondCanvas" width="620" height="240"></canvas>
       </article>
-      <article class="tool-panel">
-        <h3>CAPM 요구수익률 구조</h3>
-        <div class="controls">
-          <label>무위험수익률 <input id="rfInput" type="range" min="0" max="7" step="0.1" value="3.2"></label>
-          <label>시장위험프리미엄 <input id="mrpInput" type="range" min="1" max="10" step="0.1" value="5"></label>
-          <label>베타 <input id="betaInput" type="range" min="0.2" max="2" step="0.05" value="1"></label>
-        </div>
-        <div class="result-line"><span>기대수익률</span><strong id="capmResult">-</strong></div>
-        <canvas id="capmCanvas" width="620" height="240"></canvas>
-      </article>
+      <article class="tool-panel"><h3>CAPM 요구수익률</h3><div class="formula-board"><div><b>CAPM</b><code>E(Rᵢ)=Rᶠ+βᵢ×[E(Rₘ)-Rᶠ]</code></div></div><div class="controls"><label>무위험수익률 <input id="rfInput" type="range" min="0" max="7" step="0.1" value="3.2"></label><label>시장위험프리미엄 <input id="mrpInput" type="range" min="1" max="10" step="0.1" value="5"></label><label>베타 <input id="betaInput" type="range" min="0.2" max="2" step="0.05" value="1"></label></div><div class="result-line"><span>기대수익률</span><strong id="capmResult">-</strong></div><canvas id="capmCanvas" width="620" height="240"></canvas></article>
     </section>`;
+}
 
-  if (type === "planning") return `
-    <section class="tool-zone">
-      <div class="tool-copy">
-        <h3>은퇴 현금흐름 규모</h3>
-        <p>월 생활비와 기간이 은퇴 필요자금 규모를 어떻게 바꾸는지 보여주는 보조 시각화입니다.</p>
-      </div>
-      <div class="planning-calc">
-        <label>월 생활비(만원) <input id="monthlyNeed" type="range" min="100" max="800" step="10" value="300"></label>
-        <label>은퇴기간(년) <input id="retireYears" type="range" min="10" max="45" step="1" value="30"></label>
-        <div class="result-line"><span>단순 필요자금</span><strong id="retireResult">-</strong></div>
+function renderStatementVisual() {
+  return `
+    <section class="visual-block statements">
+      <div class="visual-head"><span>예시 서식</span><h3>재무제표 한눈에 보기</h3></div>
+      <div class="statement-grid">
+        <article><h4>재무상태표</h4><div class="accounting-equation"><span>자산</span><b>=</b><span>부채</span><b>+</b><span>자본</span></div><dl><dt>자산</dt><dd>현금, 매출채권, 재고, 유형자산</dd><dt>부채</dt><dd>매입채무, 차입금, 선수금</dd><dt>자본</dt><dd>자본금, 이익잉여금</dd></dl></article>
+        <article><h4>손익계산서</h4><div class="income-flow"><span>매출액</span><span>- 매출원가</span><span>= 매출총이익</span><span>- 판관비</span><span>= 영업이익</span><span>- 금융/법인세</span><span>= 당기순이익</span></div></article>
+        <article><h4>현금흐름표</h4><div class="cash-flow"><span>영업활동</span><span>투자활동</span><span>재무활동</span></div><p>순이익과 현금흐름의 차이를 운전자본·감가상각·투자로 연결해 본다.</p></article>
       </div>
     </section>`;
+}
 
-  if (type === "law") return `
-    <section class="tool-zone">
-      <div class="tool-copy">
-        <h3>금융상품 판매규제 구조</h3>
-        <p>일반투자자 보호 장치가 판매 과정의 어느 지점에 배치되는지 정리한 구조입니다.</p>
+function renderPlanningProcessVisual() {
+  return `
+    <section class="visual-block process-strip"><div class="visual-head"><span>프로세스</span><h3>재무설계 6단계</h3></div><div class="step-strip"><span>관계정립</span><span>정보수집</span><span>분석·평가</span><span>제안</span><span>실행</span><span>사후관리</span></div></section>`;
+}
+
+function renderTaxVisual() {
+  return `
+    <section class="visual-block tax-tool" data-visual="tax">
+      <div class="visual-head"><span>계산</span><h3>소득·세금 빠른 체크</h3></div>
+      <div class="tax-layout">
+        <div class="tax-inputs"><label>근로/사업 등 종합소득금액(만원)<input id="incomeAmount" type="number" value="6000" min="0"></label><label>기본공제 등 공제액(만원)<input id="deductionAmount" type="number" value="150" min="0"></label><label>ISA 연 납입액(만원)<input id="isaAmount" type="number" value="2000" min="0"></label><label><input id="isaEligible" type="checkbox" checked> ISA 가입요건 충족 가정</label></div>
+        <div class="tax-results"><div><span>과세표준</span><strong id="taxBaseResult">-</strong></div><div><span>산출세액 추정</span><strong id="incomeTaxResult">-</strong></div><div><span>적용 최고구간</span><strong id="taxRateResult">-</strong></div><div><span>ISA 절세 메모</span><strong id="isaResult">-</strong></div></div>
       </div>
-      <div class="checklist">
-        <label><input type="checkbox"> 투자목적·재산상황·경험 확인</label>
-        <label><input type="checkbox"> 상품 위험등급과 투자자 성향 비교</label>
-        <label><input type="checkbox"> 원금손실 가능성·수수료·환매제한 설명</label>
-        <label><input type="checkbox"> 부당권유·단정적 판단 제공 금지</label>
-        <label><input type="checkbox"> 설명 확인 자료 보존</label>
-      </div>
+      <div class="tax-calendar"><b>세금 일정 메모</b><span>종합소득세: 매년 5월 신고·납부</span><span>상속세: 상속개시일이 속하는 달의 말일부터 6개월</span><span>증여세: 증여일이 속하는 달의 말일부터 3개월</span></div>
     </section>`;
-  return "";
+}
+
+function renderSalesRuleVisual() {
+  return `
+    <section class="visual-block regulation-flow"><div><span>1</span><strong>고객확인</strong><small>일반/전문, 목적, 재산상황</small></div><div><span>2</span><strong>적합성</strong><small>권유 상품이 고객에게 맞는가</small></div><div><span>3</span><strong>적정성</strong><small>고객이 위험을 이해하는가</small></div><div><span>4</span><strong>설명의무</strong><small>원금손실·수수료·환매조건</small></div><div><span>5</span><strong>사후관리</strong><small>기록, 분쟁, 위법계약해지</small></div></section>`;
 }
 
 function bindChapterTools(type) {
-  if (type === "economics") bindMacroTool();
-  if (type === "finance") bindFinanceTools();
-  if (type === "planning") bindPlanningTool();
+  if (type === "economics") {
+    bindAdAsTool();
+    bindPolicyTool();
+  }
+  if (type === "finance") {
+    bindFinanceTools();
+    loadMarketTicker();
+  }
+  if (type === "planning") bindTaxTool();
 }
 
-function bindMacroTool() {
-  const scenarios = {
-    rateCut: { title: "금리 인하", items: [["성장", "상승 압력"], ["물가", "상승 압력"], ["시장금리", "하락"], ["환율", "상승 압력"]] },
-    rateHike: { title: "금리 인상", items: [["성장", "둔화 압력"], ["물가", "하락 압력"], ["채권가격", "하락"], ["환율", "하락 압력"]] },
-    fiscalExpansion: { title: "재정 확대", items: [["성장", "상승 압력"], ["물가", "상승 압력"], ["국채금리", "상승 압력"], ["민간투자", "구축 가능"]] },
-    oilShock: { title: "유가 충격", items: [["성장", "둔화 압력"], ["물가", "상승 압력"], ["기업마진", "압박"], ["정책판단", "복잡화"]] },
-  };
-  const host = document.querySelector("#macroScenario");
-  const buttons = document.querySelectorAll("[data-tool='macro'] button");
-  function paint(key) {
-    const scenario = scenarios[key];
-    host.innerHTML = scenario.items.map(([k, v]) => `<div><span>${k}</span><strong>${v}</strong></div>`).join("");
-  }
+function bindAdAsTool() {
+  const canvas = document.querySelector("#adasCanvas");
+  if (!canvas) return;
+  const buttons = document.querySelectorAll("[data-tool='adas'] button");
   buttons.forEach((button) => button.addEventListener("click", () => {
     buttons.forEach((item) => item.classList.remove("active"));
     button.classList.add("active");
-    paint(button.dataset.scenario);
+    drawAdAs(button.dataset.shock);
   }));
-  paint("rateCut");
+  drawAdAs("demandUp");
+}
+
+function drawAdAs(mode) {
+  const canvas = document.querySelector("#adasCanvas");
+  const notes = document.querySelector("#adasNotes");
+  const ctx = canvas.getContext("2d");
+  const w = canvas.width;
+  const h = canvas.height;
+  ctx.clearRect(0, 0, w, h);
+  ctx.fillStyle = "#fff";
+  ctx.fillRect(0, 0, w, h);
+  drawAxis(ctx, w, h, mode === "phillips" ? "실업률" : mode === "laborDemand" ? "고용량" : "실질 GDP", mode === "phillips" ? "인플레이션" : mode === "laborDemand" ? "실질임금" : "물가");
+  if (mode === "phillips") {
+    drawCurve(ctx, [[90,80],[210,125],[340,175],[520,235]], "#116a7b", "단기 PC");
+    drawCurve(ctx, [[330,55],[330,255]], "#d1495b", "장기 PC");
+    notes.innerHTML = "<b>해석</b><span>단기에는 인플레이션과 실업률이 상충하지만, 장기에는 자연실업률 부근에서 수직으로 본다.</span>";
+    return;
+  }
+  if (mode === "laborDemand") {
+    drawCurve(ctx, [[100,230],[230,170],[520,80]], "#116a7b", "노동수요");
+    drawCurve(ctx, [[120,75],[300,160],[540,240]], "#8f4f24", "노동공급");
+    drawCurve(ctx, [[160,230],[300,160],[580,70]], "#d1495b", "수요증가");
+    notes.innerHTML = "<b>노동수요 증가</b><span>균형 고용량과 실질임금이 함께 상승한다. 생산 증가와 비용 압력을 동시에 본다.</span>";
+    return;
+  }
+  drawCurve(ctx, [[90,85],[250,145],[550,240]], "#8f4f24", "AS");
+  drawCurve(ctx, [[95,235],[260,160],[555,75]], "#116a7b", "AD");
+  if (mode === "demandUp") {
+    drawCurve(ctx, [[155,235],[320,160],[615,75]], "#d1495b", "AD↑");
+    notes.innerHTML = "<b>총수요 증가</b><span>균형 산출과 물가가 상승한다. 수요견인 인플레이션과 이익 증가 가능성을 같이 본다.</span>";
+  } else {
+    drawCurve(ctx, [[130,80],[290,145],[590,240]], "#d1495b", "AS↓");
+    notes.innerHTML = "<b>총공급 감소</b><span>물가는 상승하고 산출은 둔화된다. 비용인상 인플레이션과 스태그플레이션 위험이다.</span>";
+  }
+}
+
+function drawAxis(ctx, w, h, xLabel, yLabel) {
+  ctx.strokeStyle = "#25313f";
+  ctx.lineWidth = 1.5;
+  ctx.beginPath();
+  ctx.moveTo(58, 24);
+  ctx.lineTo(58, h - 42);
+  ctx.lineTo(w - 28, h - 42);
+  ctx.stroke();
+  ctx.fillStyle = "#475467";
+  ctx.font = "14px Arial";
+  ctx.fillText(yLabel, 16, 28);
+  ctx.fillText(xLabel, w - 90, h - 14);
+}
+
+function drawCurve(ctx, points, color, label) {
+  ctx.strokeStyle = color;
+  ctx.lineWidth = 3;
+  ctx.beginPath();
+  points.forEach(([x, y], i) => i ? ctx.lineTo(x, y) : ctx.moveTo(x, y));
+  ctx.stroke();
+  const [lx, ly] = points[Math.floor(points.length / 2)];
+  ctx.fillStyle = color;
+  ctx.font = "bold 14px Arial";
+  ctx.fillText(label, lx + 8, ly - 8);
+}
+
+function bindPolicyTool() {
+  const host = document.querySelector("#policyFlow");
+  if (!host) return;
+  const flows = {
+    moneyEase: ["기준금리↓", "시장금리↓", "소비·투자↑", "총수요↑", "물가·자산가격↑"],
+    moneyTight: ["기준금리↑", "시장금리↑", "차입비용↑", "총수요↓", "물가압력↓"],
+    fiscalEase: ["정부지출↑/감세", "총수요↑", "국채발행↑", "금리상승 압력", "구축효과 점검"],
+  };
+  function paint(key) {
+    host.innerHTML = flows[key].map((item, index) => `<div><span>${index + 1}</span><strong>${item}</strong></div>`).join("");
+  }
+  document.querySelectorAll("[data-tool='policy'] button").forEach((button) => button.addEventListener("click", () => {
+    document.querySelectorAll("[data-tool='policy'] button").forEach((item) => item.classList.remove("active"));
+    button.classList.add("active");
+    paint(button.dataset.policy);
+  }));
+  paint("moneyEase");
 }
 
 function bindFinanceTools() {
-  ["durationInput", "convexityInput", "bpInput"].forEach((id) => document.querySelector(`#${id}`).addEventListener("input", updateBondTool));
-  ["rfInput", "mrpInput", "betaInput"].forEach((id) => document.querySelector(`#${id}`).addEventListener("input", updateCapmTool));
-  updateBondTool();
-  updateCapmTool();
+  if (document.querySelector("#durationInput")) {
+    ["durationInput", "convexityInput", "bpInput"].forEach((id) => document.querySelector(`#${id}`).addEventListener("input", updateBondTool));
+    ["rfInput", "mrpInput", "betaInput"].forEach((id) => document.querySelector(`#${id}`).addEventListener("input", updateCapmTool));
+    updateBondTool();
+    updateCapmTool();
+  }
 }
 
-function bindPlanningTool() {
-  ["monthlyNeed", "retireYears"].forEach((id) => document.querySelector(`#${id}`).addEventListener("input", updatePlanningTool));
-  updatePlanningTool();
+async function loadMarketTicker() {
+  const host = document.querySelector("#marketTicker");
+  if (!host) return;
+  const symbols = [
+    ["KOSPI", "https://stooq.com/q/l/?s=^kospi&f=sd2t2c&e=csv"],
+    ["NASDAQ", "https://stooq.com/q/l/?s=^ndq&f=sd2t2c&e=csv"],
+    ["S&P 500", "https://stooq.com/q/l/?s=^spx&f=sd2t2c&e=csv"],
+  ];
+  try {
+    const rows = await Promise.all(symbols.map(async ([name, url]) => {
+      const res = await fetch(url);
+      const text = await res.text();
+      const line = text.trim().split("\n")[1] || "";
+      const cols = line.split(",");
+      const close = cols[4] || "확인 필요";
+      return `<a href="${url}" target="_blank" rel="noreferrer"><b>${name}</b><span>${close}</span></a>`;
+    }));
+    host.innerHTML = rows.join("");
+  } catch (error) {
+    host.innerHTML = `<a href="https://finance.yahoo.com/quote/%5EKS11" target="_blank" rel="noreferrer"><b>KOSPI</b><span>확인</span></a><a href="https://finance.yahoo.com/quote/%5EIXIC" target="_blank" rel="noreferrer"><b>NASDAQ</b><span>확인</span></a>`;
+  }
 }
 
-function updatePlanningTool() {
-  const monthly = Number(document.querySelector("#monthlyNeed").value);
-  const years = Number(document.querySelector("#retireYears").value);
-  const total = monthly * 12 * years;
-  document.querySelector("#retireResult").textContent = `${money.format(total)}만원`;
+function bindTaxTool() {
+  const ids = ["incomeAmount", "deductionAmount", "isaAmount", "isaEligible"];
+  if (!document.querySelector("#incomeAmount")) return;
+  ids.forEach((id) => document.querySelector(`#${id}`).addEventListener("input", updateTaxTool));
+  ids.forEach((id) => document.querySelector(`#${id}`).addEventListener("change", updateTaxTool));
+  updateTaxTool();
+}
+
+function updateTaxTool() {
+  const income = Number(document.querySelector("#incomeAmount").value || 0);
+  const deduction = Number(document.querySelector("#deductionAmount").value || 0);
+  const base = Math.max(0, income - deduction);
+  const brackets = [
+    [1400, 0.06, 0], [5000, 0.15, 126], [8800, 0.24, 576], [15000, 0.35, 1544], [30000, 0.38, 1994], [50000, 0.40, 2594], [100000, 0.42, 3594], [Infinity, 0.45, 6594]
+  ];
+  const bracket = brackets.find(([limit]) => base <= limit);
+  const tax = Math.max(0, base * bracket[1] - bracket[2]);
+  const isaAmount = Number(document.querySelector("#isaAmount").value || 0);
+  const eligible = document.querySelector("#isaEligible").checked;
+  document.querySelector("#taxBaseResult").textContent = `${money.format(base)}만원`;
+  document.querySelector("#incomeTaxResult").textContent = `${money.format(tax)}만원`;
+  document.querySelector("#taxRateResult").textContent = `${Math.round(bracket[1] * 100)}% 구간`;
+  document.querySelector("#isaResult").textContent = eligible ? `납입 ${money.format(Math.min(isaAmount, 2000))}만원 기준 세제계좌 검토` : "가입요건 확인 필요";
 }
 
 function renderDictionaryChapter(chapter) {

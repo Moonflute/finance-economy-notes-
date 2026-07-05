@@ -30,7 +30,14 @@ def inline_markdown(text: str) -> str:
     return escaped
 
 
+
+def render_math_text(text: str) -> str:
+    text = re.sub(r"\$\$\s*(.*?)\s*\$\$", lambda m: f'<div class="math-block">{html.escape(m.group(1))}</div>', text, flags=re.S)
+    text = re.sub(r"\$([^$]+)\$", lambda m: f'<span class="math-inline">{html.escape(m.group(1))}</span>', text)
+    return text
+
 def markdown_to_html(markdown: str) -> str:
+    markdown = re.sub(r"\$\$\s*([\s\S]*?)\s*\$\$", lambda m: "\n" + f'<div class="math-block">{html.escape(m.group(1).strip())}</div>' + "\n", markdown)
     lines = markdown.splitlines()
     out: list[str] = []
     current_list: tuple[str, int] | None = None
