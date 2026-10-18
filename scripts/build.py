@@ -1,185 +1,48 @@
-from __future__ import annotations
-
-import html
-import json
-import re
-import shutil
-from dataclasses import dataclass
 from pathlib import Path
+import json, html, shutil
+ROOT=Path(__file__).resolve().parents[1]
 
+def esc(value):return html.escape(str(value),quote=True)
+def concept_html(c,sources):
+    refs=' · '.join(f'<a href="{esc(sources[s]["url"])}">{esc(sources[s]["name"])}</a>' for s in c['sources'])
+    return f'''<section class="print-concept" id="{c['id']}"><p class="eyebrow">{esc(c['en'])}</p><h3>{esc(c['title'])}</h3><p class="print-cue">{esc(c['cue'])}</p><p>{esc(c['summary'])}</p><div class="formula">{esc(c['formula'])}</div><h4>예시</h4><p>{esc(c['example'])}</p><h4>원리와 연결</h4><p>{esc(c['detail'])}</p><p class="print-trap"><b>구분할 점</b> {esc(c['trap'])}</p><small>{refs}</small></section>'''
 
-ROOT = Path(__file__).resolve().parents[1]
-CONTENT_DIR = ROOT / "content" / "chapters"
-SITE_DIR = ROOT / "site"
-DIST_DIR = ROOT / "dist"
-VERSION_FILE = ROOT / "VERSION"
+def build():
+    data=json.loads((ROOT/'content/fieldbook.json').read_text(encoding='utf-8-sig'))
+    data['version']=(ROOT/'VERSION').read_text(encoding='utf-8-sig').strip()
+    ids={c['id'] for c in data['concepts']}
+    if len(ids)!=len(data['concepts']):raise ValueError('Duplicate concept IDs')
+    for c in data['concepts']:
+        for key in ['id','field','group','title','cue','summary','formula','example','detail','trap']:
+            if not c.get(key):raise ValueError(f'Missing {key}: {c["id"]}')
+        if not all(x in ids for x in c['related']):raise ValueError(f'Broken related links: {c["id"]}')
+        if not all(x in data['sources'] for x in c['sources']):raise ValueError('Unknown source')
+    for path in data['paths']:
+        if not all(x in ids for x in path['nodes']):raise ValueError('Broken path')
+    dist=ROOT/'dist';dist.mkdir(exist_ok=True)
+    for name in ['index.html','app.js','styles.css','labs.js','markets.js','manifest.webmanifest','.nojekyll']:
+        shutil.copy2(ROOT/'site'/name,dist/name)
+    shutil.copytree(ROOT/'site/icons',dist/'icons',dirs_exist_ok=True)
+    parts=[]; chapters=[]
+    for index,field in enumerate(data['fields'],1):
+        cs=[c for c in data['concepts'] if c['field']==field['id']]
+        markdown=[f'# {field["name"]}',field['description']]
+        body=[f'<section class="print-field"><h1>{esc(field["name"])}</h1><p>{esc(field["description"])}</p>']
+        for group in dict.fromkeys(c['group'] for c in cs):
+            body.append(f'<h2>{esc(group)}</h2>');markdown.append('## '+group)
+            for c in [x for x in cs if x['group']==group]:
+                body.append(concept_html(c,data['sources']))
+                markdown.extend([f'### {c["title"]}',c['cue'],c['summary'],f'`{c["formula"]}`',f'**예시** {c["example"]}',f'**원리와 연결** {c["detail"]}',f'**구분할 점** {c["trap"]}','관련 개념: '+', '.join(next(x['title'] for x in data['concepts'] if x['id']==r) for r in c['related']),'참고 원문: '+' · '.join(f'[{data["sources"][s]["name"]}]({data["sources"][s]["url"]})' for s in c['sources'])])
+        body.append('</section>');parts.extend(body)
+        slug=f'{index:02d}_'+{'economics':'economics','finance':'finance','planning':'planning','law':'law'}[field['id']]
+        text='\n\n'.join(markdown)+'\n'
+        (ROOT/'content/chapters'/f'{slug}.md').write_text(text,encoding='utf-8')
+        chapters.append({'slug':slug,'title':field['name'],'markdown':text,'html':'\n'.join(body)})
+    glossary='# 용어사전\n\n'+'\n\n'.join(f'## {f["name"]}\n\n'+'\n\n'.join(c['title']+': '+c['summary'] for c in data['concepts'] if c['field']==f['id']) for f in data['fields'])
+    (ROOT/'content/chapters/05_dictionary.md').write_text(glossary+'\n',encoding='utf-8')
+    data['chapters']=chapters
+    (dist/'content.json').write_text(json.dumps(data,ensure_ascii=False,indent=2),encoding='utf-8')
+    (dist/'finance-guide-print.html').write_text('<!doctype html><html lang="ko"><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Fieldbook · 리마인드 노트</title><link rel="stylesheet" href="styles.css"><body class="print-document"><header class="print-cover"><p>PERSONAL FINANCE FIELDBOOK · '+esc(data['edition'])+'</p><h1>다시 꺼내 보는<br>금융·경제 개념</h1><p>핵심 · 공식 · 예시 · 구분할 점</p><p>법·세제 카드는 개념과 판단 구조를 다룹니다. 구체적 한도·세율·기한은 적용 시점의 법령을 확인하세요.</p><button onclick="window.print()">인쇄 / PDF 저장</button></header>'+''.join(parts)+'</body></html>',encoding='utf-8')
+    print(f'Built {len(ids)} concepts / {len(data["fields"])} fields → dist')
 
-
-@dataclass
-class Chapter:
-    slug: str
-    title: str
-    markdown: str
-    html: str
-
-
-def inline_markdown(text: str) -> str:
-    escaped = html.escape(text)
-    escaped = re.sub(r"`([^`]+)`", r"<code>\1</code>", escaped)
-    escaped = re.sub(r"\*\*([^*]+)\*\*", r"<strong>\1</strong>", escaped)
-    return escaped
-
-
-
-def render_math_text(text: str) -> str:
-    text = re.sub(r"\$\$\s*(.*?)\s*\$\$", lambda m: f'<div class="math-block">{html.escape(m.group(1))}</div>', text, flags=re.S)
-    text = re.sub(r"\$([^$]+)\$", lambda m: f'<span class="math-inline">{html.escape(m.group(1))}</span>', text)
-    return text
-
-def markdown_to_html(markdown: str) -> str:
-    markdown = re.sub(r"\$\$\s*([\s\S]*?)\s*\$\$", lambda m: "\n" + f'<div class="math-block">{html.escape(m.group(1).strip())}</div>' + "\n", markdown)
-    lines = markdown.splitlines()
-    out: list[str] = []
-    current_list: tuple[str, int] | None = None
-    in_table = False
-    table_rows: list[str] = []
-
-    def close_list() -> None:
-        nonlocal current_list
-        if current_list:
-            out.append(f"</{current_list[0]}>")
-            current_list = None
-
-    def ensure_list(tag: str, indent: int) -> None:
-        nonlocal current_list
-        if current_list == (tag, indent):
-            return
-        close_list()
-        depth = min(indent // 4, 4)
-        out.append(f"<{tag} class=\"md-list md-indent-{depth}\">")
-        current_list = (tag, indent)
-
-    def flush_table() -> None:
-        nonlocal in_table, table_rows
-        if not in_table:
-            return
-        out.append("<table>")
-        for i, row in enumerate(table_rows):
-            cells = [cell.strip() for cell in row.strip("|").split("|")]
-            if i == 1 and all(set(cell) <= {"-", ":", " "} for cell in cells):
-                continue
-            tag = "th" if i == 0 else "td"
-            out.append("<tr>" + "".join(f"<{tag}>{inline_markdown(cell)}</{tag}>" for cell in cells) + "</tr>")
-        out.append("</table>")
-        table_rows = []
-        in_table = False
-
-    for raw in lines:
-        line = raw.rstrip()
-        if not line:
-            flush_table()
-            close_list()
-            continue
-        if "|" in line and line.strip().startswith("|"):
-            close_list()
-            in_table = True
-            table_rows.append(line)
-            continue
-        flush_table()
-        heading = re.match(r"^(#{1,6})\s+(.+)$", line)
-        if heading:
-            close_list()
-            level = len(heading.group(1))
-            out.append(f"<h{level}>{inline_markdown(heading.group(2))}</h{level}>")
-            continue
-        bullet = re.match(r"^(\s*)[-*]\s+(.+)$", line)
-        if bullet:
-            indent = len(bullet.group(1).replace("\t", "    "))
-            ensure_list("ul", indent)
-            out.append(f"<li>{inline_markdown(bullet.group(2))}</li>")
-            continue
-        numbered = re.match(r"^(\s*)\d+\.\s+(.+)$", line)
-        if numbered:
-            indent = len(numbered.group(1).replace("\t", "    "))
-            ensure_list("ol", indent)
-            out.append(f"<li>{inline_markdown(numbered.group(2))}</li>")
-            continue
-        close_list()
-        out.append(f"<p>{inline_markdown(line)}</p>")
-
-    flush_table()
-    close_list()
-    return "\n".join(out)
-
-def read_chapters() -> list[Chapter]:
-    chapters: list[Chapter] = []
-    for path in sorted(CONTENT_DIR.glob("*.md")):
-        markdown = path.read_text(encoding="utf-8")
-        title = next((line[2:].strip() for line in markdown.splitlines() if line.startswith("# ")), path.stem)
-        chapters.append(Chapter(path.stem, title, markdown, markdown_to_html(markdown)))
-    return chapters
-
-
-def read_version() -> str:
-    if not VERSION_FILE.exists():
-        return "0.0.0"
-    version = VERSION_FILE.read_text(encoding="utf-8-sig").strip()
-    return version or "0.0.0"
-
-
-def build() -> None:
-    DIST_DIR.mkdir(exist_ok=True)
-    chapters = read_chapters()
-    version = read_version()
-    data = {
-        "title": "대한민국 금융경제 통합 가이드",
-        "version": version,
-        "chapters": [
-            {"slug": chapter.slug, "title": chapter.title, "html": chapter.html, "markdown": chapter.markdown}
-            for chapter in chapters
-        ],
-    }
-
-    for item in SITE_DIR.iterdir():
-        target = DIST_DIR / item.name
-        if item.is_dir():
-            if target.exists():
-                shutil.rmtree(target)
-            shutil.copytree(item, target)
-        else:
-            shutil.copy2(item, target)
-
-    (DIST_DIR / "content.json").write_text(json.dumps(data, ensure_ascii=False, indent=2), encoding="utf-8")
-
-    print_html = render_print_html(chapters, version)
-    (DIST_DIR / "finance-guide-print.html").write_text(print_html, encoding="utf-8")
-    print(f"Built {DIST_DIR}")
-
-
-def render_print_html(chapters: list[Chapter], version: str) -> str:
-    body = "\n".join(f"<section class=\"print-chapter\">{chapter.html}</section>" for chapter in chapters)
-    escaped_version = html.escape(version)
-    return f"""<!doctype html>
-<html lang="ko">
-<head>
-  <meta charset="utf-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>대한민국 금융경제 통합 가이드 - PDF</title>
-  <link rel="stylesheet" href="styles.css">
-</head>
-<body class="print-doc">
-  <header class="print-cover">
-    <p class="eyebrow">Finance Knowledge Guide</p>
-    <h1>대한민국 금융경제 통합 가이드 <span class="app-version">v {escaped_version}</span></h1>
-    <p>경제, 금융, 재무설계, 법률을 자격증 보유자 수준으로 연결해 정리한 학습·설명용 문서</p>
-  </header>
-  <main>{body}</main>
-</body>
-</html>
-"""
-
-
-if __name__ == "__main__":
-    build()
-
-
+if __name__=='__main__':build()
