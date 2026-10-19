@@ -1,100 +1,169 @@
-import {LABS,labMarkup,mountLab} from './labs.js';
-import {marketMarkup,mountMarkets} from './markets.js';
-const $=s=>document.querySelector(s);
-const escape=s=>String(s??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
-const narrow=matchMedia('(max-width:960px)');
-function syncMenu(){const open=document.body.classList.contains('menu-open');$('#sidebar').inert=narrow.matches&&!open;const toggle=$('[data-menu]');if(toggle)toggle.setAttribute('aria-expanded',String(open))}
-narrow.addEventListener('change',syncMenu);
-const icons={home:'⌂',library:'▦',links:'⌘',review:'↻',bookmarks:'♧',lab:'◉',markets:'↗'};
-let data,byId,route='home',sub='',cleanup=null,filterGroup='전체',libraryQuery='',memoryFilter='all',toastTimer,review=null,storageOK=true;
-const key='fieldbook-personal-v1';
-let saved={bookmarks:[],known:[],again:[],notes:{},last:'',reviewedAt:{}};
-try{const s=JSON.parse(localStorage.getItem(key));if(s&&typeof s==='object'){for(const k of ['bookmarks','known','again'])if(Array.isArray(s[k]))saved[k]=s[k].filter(x=>typeof x==='string');for(const k of ['notes','reviewedAt'])if(s[k]&&typeof s[k]==='object'&&!Array.isArray(s[k]))saved[k]=s[k];if(typeof s.last==='string')saved.last=s.last}}catch{storageOK=false}
-function persist(){try{localStorage.setItem(key,JSON.stringify(saved));return true}catch{storageOK=false;toast('이 브라우저에서는 저장이 제한됩니다. 현재 화면에서만 유지됩니다.');return false}}
-function toast(msg){clearTimeout(toastTimer);$('#toast').textContent=msg;$('#toast').classList.add('show');toastTimer=setTimeout(()=>$('#toast').classList.remove('show'),2400)}
-function field(id){return data.fields.find(f=>f.id===id)}
-function anchor(id,text,cls=''){return `<a class="${cls}" href="#concept/${id}">${escape(text||byId.get(id)?.title)}<span aria-hidden="true">↗</span></a>`}
-function smallTag(c){return `<span class="field-tag" style="--field:${field(c.field).color}"><i></i>${field(c.field).name}</span>`}
-function status(c){return saved.known.includes(c.id)?'<span class="memory-status">✓ 기억남</span>':saved.again.includes(c.id)?'<span class="memory-status again">↻ 다시 보기</span>':''}
-function card(c){return `<article class="concept-card" style="--field:${field(c.field).color}"><div class="card-top">${smallTag(c)}<button class="bookmark-button ${saved.bookmarks.includes(c.id)?'selected':''}" data-bookmark="${c.id}" aria-label="${escape(c.title)} 북마크" aria-pressed="${saved.bookmarks.includes(c.id)}">${saved.bookmarks.includes(c.id)?'★':'☆'}</button></div><a href="#concept/${c.id}" class="card-main"><span class="card-en">${escape(c.en)}</span><h3>${escape(c.title)}</h3><p>${escape(c.summary)}</p></a><div class="card-bottom"><span>${escape(c.group)}</span>${status(c)||'<span aria-hidden="true">↗</span>'}</div></article>`}
-function navigate(){
- const previous=route,parts=location.hash.replace(/^#\/?/,'').split('/');route=parts[0]||'home';try{sub=decodeURIComponent(parts.slice(1).join('/'))}catch{sub=''};
- const aliases={'01_economics':'economics','02_finance':'finance','03_planning':'planning','04_law':'law'};
- if(aliases[route]){location.replace('#library/'+aliases[route]);return}if(route==='dictionary'){location.replace('#library');return}if(route==='map'){location.replace('#links');return}
- if(cleanup){cleanup();cleanup=null}if(previous!==route){filterGroup='전체';libraryQuery='';memoryFilter='all'}
- if(!['home','library','concept','links','review','bookmarks','lab','markets'].includes(route)){route='home';sub=''}
- shell();render();window.scrollTo({top:0,behavior:'instant'});$('#main').focus({preventScroll:true});document.body.classList.remove('menu-open');syncMenu();
+import {LABS, labMarkup, mountLab} from './labs.js';
+import {marketMarkup, mountMarkets} from './markets.js';
+
+const $ = selector => document.querySelector(selector);
+const escape = value => String(value ?? '').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+const narrow = matchMedia('(max-width:960px)');
+const storageKey = 'fieldbook-personal-v1';
+let data, byId, route = 'home', sub = '', cleanup = null;
+let filterGroup = '전체', libraryQuery = '', toastTimer;
+let stored = {}, bookmarks = [];
+try {
+  const value = JSON.parse(localStorage.getItem(storageKey));
+  if (value && typeof value === 'object' && !Array.isArray(value)) stored = value;
+  if (Array.isArray(stored.bookmarks)) bookmarks = stored.bookmarks.filter(x => typeof x === 'string');
+} catch {}
+
+function toast(message) {
+  clearTimeout(toastTimer);
+  $('#toast').textContent = message;
+  $('#toast').classList.add('show');
+  toastTimer = setTimeout(() => $('#toast').classList.remove('show'), 2000);
 }
-function shell(){
- const nav=[['home','나의 서재'],['library','개념 사전'],['links','연결해서 보기'],['review','리마인드'],['bookmarks','북마크'],['lab','개념 실험'],['markets','시장 데이터']];
- $('#sidebar').innerHTML=`<a href="#home" class="brand"><span class="brand-icon">f.</span><div>fieldbook<span>PERSONAL KNOWLEDGE</span></div></a><div class="sidebar-label">MY WORKSPACE</div><nav>${nav.map(([id,label])=>`<a href="#${id}" ${route===id?'aria-current="page"':''} class="nav-item ${route===id?'active':''}"><span class="nav-icon">${icons[id]}</span>${label}${id==='bookmarks'?`<small id="bookmarkCount">${saved.bookmarks.length}</small>`:''}</a>`).join('')}</nav><div class="sidebar-label field-label">COLLECTIONS</div><nav class="field-navigation">${data.fields.map(f=>`<a href="#library/${f.id}" ${route==='library'&&sub===f.id?'aria-current="page"':''}><i style="background:${f.color}"></i>${f.name}<small>${data.concepts.filter(c=>c.field===f.id).length}</small></a>`).join('')}</nav><div class="sidebar-bottom"><div class="user-mark">K</div><div>나의 금융 노트<small>기억을 쌓는 작은 서재</small></div><span class="online-dot" title="브라우저에 저장"></span></div>`;
- const label=nav.find(([x])=>x===route)?.[1]||'개념 노트';
- $('#topbar').innerHTML=`<button class="icon-button menu-button" data-menu aria-label="메뉴 열기" aria-expanded="false">☰</button><div class="breadcrumb">나의 서재 <span>/</span> <b>${label}</b></div><button class="search-trigger" data-open-search><span>⌕</span><span>개념, 공식, 키워드 검색</span><kbd>Ctrl K</kbd></button><a class="print-button" href="finance-guide-print.html" target="_blank" rel="noreferrer" aria-label="전체 노트 인쇄 또는 PDF 저장">노트 인쇄 ↗</a>`;
- $('#footer').innerHTML=`<span>FIELDBOOK <b>·</b> ${data.edition}</span><span>나의 기록은 이 브라우저에 저장됩니다.${storageOK?'':' 현재 저장 제한 상태입니다.'}</span>`;
+function saveBookmarks() {
+  try {
+    localStorage.setItem(storageKey, JSON.stringify({...stored, bookmarks}));
+    return true;
+  } catch { return false; }
 }
-function render(){
- const pages={home:home,library:library,bookmarks:library,concept:concept,links:connections,review:reviewPage,lab:labPage,markets:()=>{$('#main').innerHTML=pageHead('MARKET OBSERVATIONS','시장 데이터','개념에서 실제 숫자로. 제공처와 기준 시점을 함께 확인하세요.')+marketMarkup();cleanup=mountMarkets($('#marketRoot'))}};
- pages[route]();document.title=(route==='concept'&&byId.has(sub)?byId.get(sub).title:({home:'나의 금융 서재',library:'개념 사전',review:'리마인드',lab:'개념 실험',links:'연결해서 보기',bookmarks:'북마크',markets:'시장 데이터'}[route]))+' · Fieldbook';
+function syncMenu() {
+  const open = document.body.classList.contains('menu-open');
+  $('#sidebar').inert = narrow.matches && !open;
+  const toggle = $('[data-menu]');
+  if (toggle) toggle.setAttribute('aria-expanded', String(open));
 }
-function pageHead(kicker,title,desc,extra=''){return `<header class="page-heading"><div><p class="eyebrow">${kicker}</p><h1>${title}</h1><p>${desc}</p></div>${extra}</header>`}
-function home(){
- const featured=['duration','capm','fcff','regression','isa','suitability'].map(id=>byId.get(id));const last=byId.get(saved.last);const known=saved.known.length,pct=Math.round(known/data.concepts.length*100);
- $('#main').innerHTML=`<section class="home-hero"><div class="hero-copy"><p class="eyebrow"><i></i> YOUR KNOWLEDGE, RECONNECTED</p><h1>공부했던 개념,<br><em>다시 꺼내보기.</em></h1><p>경제부터 투자, 재무설계와 법률까지.<br>짧게 떠올리고, 연결하고, 직접 움직여보세요.</p><div class="hero-actions"><a href="#review" class="button primary">5개만 리마인드 <span>↗</span></a><a href="${last?'#concept/'+last.id:'#library'}" class="text-button">${last?'이어서 보기 · '+escape(last.title):'개념 사전 펼치기'} →</a></div></div><div class="hero-orbit" aria-label="금리에서 채권과 가치평가로 이어지는 복습 연결"><svg viewBox="0 0 380 260" aria-hidden="true"><path class="orbit-path" d="M64 75 Q190 0 315 85 T200 215 T64 75"/><path class="orbit-path inner" d="M90 155 Q190 35 290 155"/></svg><a class="orbit-note note-a" href="#concept/policy"><span>01 · ECONOMICS</span><b>금리</b><small>돈의 가격에서</small></a><a class="orbit-note note-b" href="#concept/duration"><span>02 · FINANCE</span><b>듀레이션</b><small>가격의 민감도로</small></a><a class="orbit-note note-c" href="#concept/dcf"><span>03 · VALUATION</span><b>현재가치</b><small>미래를 오늘로</small></a><div class="orbit-dot dot-one"></div><div class="orbit-dot dot-two"></div><span class="orbit-caption">개념 사이의 연결을 다시 발견하세요</span></div></section>
- <div class="overview-strip"><div><strong>${data.concepts.length}</strong><span>정리된 개념</span></div><div><strong>${saved.bookmarks.length}</strong><span>나의 북마크</span></div><div><strong>${known}</strong><span>기억나는 개념</span></div><div class="progress-overview"><div><span>나의 리마인드</span><b>${pct}%</b></div><div class="progress-track"><span style="width:${pct}%"></span></div></div></div>
- <section class="collection-section"><div class="section-heading"><div><p class="eyebrow">COLLECTIONS</p><h2>네 가지 시선으로</h2></div><a href="#library">전체 개념 보기 ↗</a></div><div class="collection-grid">${data.fields.map(f=>`<a href="#library/${f.id}" class="collection-tile" style="--field:${f.color}"><div><span class="collection-no">${f.icon}</span><span class="collection-arrow">↗</span></div><span class="collection-en">${f.en}</span><h3>${f.name}</h3><p>${f.description}</p><small>${data.concepts.filter(c=>c.field===f.id).length} CONCEPTS</small></a>`).join('')}</div></section>
- <section><div class="section-heading"><div><p class="eyebrow">BACK TO THE ESSENTIALS</p><h2>다시 만나면 좋은 개념</h2></div><span class="section-hint">정의 · 공식 · 예시 · 구분할 점</span></div><div class="concept-grid">${featured.map(card).join('')}</div></section>
- <section class="home-bottom"><a class="connection-banner" href="#links"><span class="eyebrow">CONNECT THE DOTS</span><h2>따로 외웠던 개념을<br>하나의 흐름으로.</h2><p>이익 → 현금흐름 → 할인율 → 기업가치</p><span class="round-arrow">↗</span></a><a class="experiment-banner" href="#lab/bond"><span class="eyebrow">A LITTLE EXPERIMENT</span><h2>금리를 움직이면<br>채권가격은?</h2><svg viewBox="0 0 220 80" aria-hidden="true"><path d="M5 8 Q75 60 215 72" fill="none" stroke="currentColor" stroke-width="3"/><circle cx="100" cy="50" r="6" fill="currentColor"/></svg><span class="round-arrow">↗</span></a></section>`;
+function closeMenu() { document.body.classList.remove('menu-open'); syncMenu(); }
+narrow.addEventListener('change', syncMenu);
+const field = id => data.fields.find(f => f.id === id);
+const link = (id, label) => `<a href="#concept/${id}">${escape(label || byId.get(id)?.title)}</a>`;
+const tag = c => `<span class="field-tag" style="--field:${field(c.field).color}"><i></i>${field(c.field).name}</span>`;
+function bookmarkButton(c, compact = false) {
+  const selected = bookmarks.includes(c.id);
+  return `<button class="${compact ? 'bookmark-button' : 'button secondary'} ${selected ? 'selected' : ''}" data-bookmark="${c.id}" aria-label="${escape(c.title)} 북마크" aria-pressed="${selected}">${compact ? (selected ? '★' : '☆') : (selected ? '★ 북마크됨' : '☆ 북마크')}</button>`;
 }
-function library(){
- const bookmarks=route==='bookmarks',selected=data.fields.some(f=>f.id===sub)?sub:'all';
- $('#main').innerHTML=pageHead(bookmarks?'SAVED FOR LATER':'THE CONCEPT LIBRARY',bookmarks?'다시 보고 싶은 개념':'개념 사전',bookmarks?'별표로 모아둔 개념을 내 속도로 다시 확인하세요.':'짧게 기억하고, 필요한 만큼 깊이 들어가세요.',`<a class="button secondary" href="#review">카드로 리마인드 ↻</a>`)+`<div class="library-toolbar"><div class="field-tabs" role="group" aria-label="분야 필터"><a href="#${bookmarks?'bookmarks':'library'}" class="${selected==='all'?'active':''}">전체</a>${data.fields.map(f=>`<a href="#${bookmarks?'bookmarks':'library'}/${f.id}" class="${selected===f.id?'active':''}">${f.name}</a>`).join('')}</div><div class="library-search"><span aria-hidden="true">⌕</span><label class="sr-only" for="librarySearch">개념 내 검색</label><input id="librarySearch" placeholder="개념 이름이나 핵심 문장 검색" value="${escape(libraryQuery)}"></div></div><div class="library-layout"><aside class="group-filter"><h2>주제별로 찾기</h2><div id="groupButtons"></div><label for="memoryFilter">복습 상태</label><select id="memoryFilter"><option value="all">모든 상태</option><option value="known">기억나는 개념</option><option value="again">다시 볼 개념</option><option value="new">아직 복습 전</option></select></aside><div class="library-content"><div class="result-meta"><strong id="resultCount"></strong><span>카드를 열어 원리와 예시 확인</span></div><div id="conceptGrid" class="concept-grid"></div></div></div>`;
- const pool=data.concepts.filter(c=>(selected==='all'||c.field===selected)&&(!bookmarks||saved.bookmarks.includes(c.id))),groups=['전체',...new Set(pool.map(c=>c.group))];if(!groups.includes(filterGroup))filterGroup='전체';
- const paintGroups=()=>{$('#groupButtons').innerHTML=groups.map(g=>`<button data-group="${escape(g)}" class="${filterGroup===g?'active':''}" aria-pressed="${filterGroup===g}">${escape(g)}<small>${g==='전체'?pool.length:pool.filter(c=>c.group===g).length}</small></button>`).join('')};
- const paint=()=>{const q=libraryQuery.toLowerCase();const rows=pool.filter(c=>(filterGroup==='전체'||c.group===filterGroup)&&matches(c,q)&&(memoryFilter==='all'||memoryFilter==='known'&&saved.known.includes(c.id)||memoryFilter==='again'&&saved.again.includes(c.id)||memoryFilter==='new'&&!saved.known.includes(c.id)&&!saved.again.includes(c.id)));$('#resultCount').textContent=rows.length+'개의 개념';$('#conceptGrid').innerHTML=rows.length?rows.map(card).join(''):`<div class="empty-state"><span>⌕</span><h3>${bookmarks&&!pool.length?'아직 담아둔 개념이 없어요':'조건에 맞는 개념이 없어요'}</h3><p>${bookmarks&&!pool.length?'카드의 별표를 눌러 나만의 서재를 채워보세요.':'검색어나 분야·복습 상태 필터를 바꿔보세요.'}</p><a href="#library" class="button secondary">전체 개념 보기</a></div>`};
- $('#librarySearch').addEventListener('input',e=>{libraryQuery=e.target.value;paint()});$('#memoryFilter').value=memoryFilter;$('#memoryFilter').addEventListener('change',e=>{memoryFilter=e.target.value;paint()});$('#groupButtons').addEventListener('click',e=>{const b=e.target.closest('[data-group]');if(b){filterGroup=b.dataset.group;paintGroups();paint()}});paintGroups();paint();
+function card(c) {
+  return `<article class="concept-card" style="--field:${field(c.field).color}"><div class="card-top">${tag(c)}${bookmarkButton(c, true)}</div><a href="#concept/${c.id}" class="card-main"><span class="card-en">${escape(c.en)}</span><h3>${escape(c.title)}</h3><p>${escape(c.summary)}</p></a><div class="card-bottom"><span>${escape(c.group)}</span><span aria-hidden="true">↗</span></div></article>`;
 }
-function matches(c,q){return !q||[c.title,c.en,c.group,c.cue,c.summary,c.formula,c.detail,c.example,c.trap].join(' ').toLowerCase().includes(q)}
-function concept(){
- const c=byId.get(sub);if(!c){$('#main').innerHTML=pageHead('NOT FOUND','개념을 찾지 못했습니다','주소를 확인하거나 개념 사전에서 다시 찾아보세요.','<a href="#library" class="button primary">개념 사전</a>');return}
- saved.last=c.id;persist();const f=field(c.field),group=data.concepts.filter(x=>x.field===c.field&&x.group===c.group),index=group.findIndex(x=>x.id===c.id),prev=group[index-1],next=group[index+1];
- $('#main').innerHTML=`<div class="detail-breadcrumb"><a href="#library/${f.id}">${f.name}</a><span>/</span>${escape(c.group)}</div><header class="concept-heading"><div>${smallTag(c)}<p class="detail-en">${escape(c.en)}</p><h1>${escape(c.title)}</h1><p>${escape(c.cue)}</p></div><button class="button secondary ${saved.bookmarks.includes(c.id)?'selected':''}" data-bookmark="${c.id}" aria-pressed="${saved.bookmarks.includes(c.id)}">${saved.bookmarks.includes(c.id)?'★ 담아둔 개념':'☆ 북마크'}</button></header><div class="detail-layout"><article class="detail-body"><section class="recall-summary"><span class="eyebrow">한 문장으로 기억하기</span><h2>${escape(c.summary)}</h2></section><section class="formula-panel"><span class="eyebrow">기억할 식 · 구조</span><div class="formula">${escape(c.formula)}</div></section><section class="example-panel"><div class="panel-index">01</div><div><h2>숫자와 상황으로 확인</h2><p>${escape(c.example)}</p></div></section><details class="deep-section"><summary><span><small>ONE STEP DEEPER</small>원리와 연결 다시 읽기</span><span class="expand-symbol">+</span></summary><div><p>${escape(c.detail)}</p></div></details><section class="trap-panel"><span>!</span><div><h2>여기서 헷갈리지 않기</h2><p>${escape(c.trap)}</p></div></section>${c.lab?`<a class="inline-lab" href="#lab/${c.lab}"><div><small>직접 움직여 보기</small><b>${LABS.find(l=>l.id===c.lab).name}</b></div><span>실험 열기 ↗</span></a>`:''}<section class="source-panel"><h2>관련 자료와 원문</h2>${c.regulatory?'<p>제도·법률의 판단 구조를 정리한 카드입니다. 한도·세율·기한과 적용 대상은 거래·귀속 시점의 법령 및 안내에서 확인하세요.</p>':''}<div>${c.sources.map(id=>`<a href="${escape(data.sources[id].url)}" target="_blank" rel="noreferrer">${escape(data.sources[id].name)} ↗</a>`).join('')}</div></section><nav class="concept-pager" aria-label="같은 주제 개념">${prev?anchor(prev.id,'← '+prev.title):'<span></span>'}${next?anchor(next.id,next.title+' →'):''}</nav></article><aside class="detail-aside"><section class="recall-actions"><span class="eyebrow">MY MEMORY</span><h2>얼마나 기억나나요?</h2><button class="memory-button ${saved.known.includes(c.id)?'active':''}" data-memory="known" aria-pressed="${saved.known.includes(c.id)}" data-id="${c.id}">✓ 기억났어요</button><button class="memory-button ${saved.again.includes(c.id)?'active':''}" data-memory="again" aria-pressed="${saved.again.includes(c.id)}" data-id="${c.id}">↻ 다시 볼래요</button><small>직접 선택한 복습 상태만 기록됩니다.</small></section><section class="related-panel"><span class="eyebrow">CONNECTED CONCEPTS</span><h2>함께 떠올릴 개념</h2>${c.related.map(id=>anchor(id)).join('')}</section><section class="personal-note"><label for="personalNote">나만의 기억 메모</label><textarea id="personalNote" maxlength="3000" placeholder="내가 헷갈렸던 부분, 기억할 예시…">${escape(saved.notes[c.id]||'')}</textarea><div><small id="noteStatus">${saved.notes[c.id]?'저장된 메모':'이 브라우저에 자동 저장'}</small><button class="text-button" data-clear-note="${c.id}">지우기</button></div></section></aside></div>`;
- $('#personalNote').addEventListener('input',e=>{saved.notes[c.id]=e.target.value;$('#noteStatus').textContent=persist()?'저장됨':'현재 화면에서만 유지'});
+function pageHead(title, description = '', extra = '') {
+  return `<header class="page-heading"><div><h1>${title}</h1>${description ? `<p>${description}</p>` : ''}</div>${extra}</header>`;
 }
-function connections(){
- const path=data.paths.find(p=>p.id===sub)||data.paths[0];
- $('#main').innerHTML=pageHead('CONNECT THE DOTS','개념을 연결해서 보기','하나의 주제에서 다음 질문으로. 화살표는 복습 순서를 나타냅니다.')+`<div class="path-tabs">${data.paths.map(p=>`<a href="#links/${p.id}" class="${p.id===path.id?'active':''}" ${p.id===path.id?'aria-current="true"':''}>${p.name}</a>`).join('')}</div><section class="connection-canvas"><p class="eyebrow">${escape(path.description)}</p><div class="connection-chain">${path.nodes.map((id,i)=>{const c=byId.get(id);return `${i?'<span class="chain-arrow" aria-hidden="true">→</span>':''}<a href="#concept/${id}" class="chain-node" style="--field:${field(c.field).color}"><small>0${i+1} / ${field(c.field).en}</small><strong>${escape(c.title)}</strong><p>${escape(c.cue)}</p><span>개념 열기 ↗</span></a>`}).join('')}</div><p class="connection-note">연결은 생각의 순서입니다. 실제 경제적 효과는 가정과 조건, 시차에 따라 달라집니다.</p></section><div class="section-heading"><h2>이 흐름에서 기억할 문장</h2></div><div class="path-notes">${path.nodes.map((id,i)=>{const c=byId.get(id);return`<a href="#concept/${id}"><span>0${i+1}</span><div><h3>${escape(c.title)}</h3><p>${escape(c.summary)}</p></div><b>↗</b></a>`}).join('')}</div>`;
+function navigate() {
+  const previous = route, parts = location.hash.replace(/^#\/?/, '').split('/');
+  route = parts[0] || 'home';
+  try { sub = decodeURIComponent(parts.slice(1).join('/')); } catch { sub = ''; }
+  const aliases = {'01_economics':'economics','02_finance':'finance','03_planning':'planning','04_law':'law'};
+  if (aliases[route]) { location.replace('#library/' + aliases[route]); return; }
+  if (['dictionary','review','links','map'].includes(route)) { location.replace('#library'); return; }
+  if (cleanup) { cleanup(); cleanup = null; }
+  if (previous !== route) { filterGroup = '전체'; libraryQuery = ''; }
+  if (!['home','library','concept','bookmarks','lab','markets'].includes(route)) { route = 'home'; sub = ''; }
+  shell();
+  ({home, library, bookmarks:library, concept, lab:labPage, markets:marketPage})[route]();
+  const title = route === 'concept' && byId.has(sub) ? byId.get(sub).title : {home:'금융·경제 노트', library:'개념 사전', bookmarks:'북마크', lab:'실험실', markets:'시장 데이터', concept:'개념'}[route];
+  document.title = title + ' · Fieldbook';
+  window.scrollTo({top:0, behavior:'instant'});
+  $('#main').focus({preventScroll:true});
+  closeMenu();
 }
-function shuffled(a){const b=[...a];for(let i=b.length-1;i>0;i--){const j=Math.floor(Math.random()*(i+1));[b[i],b[j]]=[b[j],b[i]]}return b}
-function reviewPage(){
- $('#main').innerHTML=pageHead('A SMALL DAILY RECALL','5개만 다시 떠올리기','먼저 답을 생각한 뒤 확인하세요. 기억난 정도는 직접 표시합니다.')+`<div class="review-shell"><div class="review-settings"><label for="reviewPool">복습할 카드</label><select id="reviewPool"><option value="all">전체 개념에서</option><option value="bookmarks">북마크에서</option><option value="again">다시 볼 개념에서</option></select><button class="text-button" id="restartReview">새 카드 뽑기 ↻</button></div><div id="reviewStage"></div></div>`;
- const start=()=>{const pool=$('#reviewPool').value;const rows=data.concepts.filter(c=>pool==='all'||saved[pool].includes(c.id));review={ids:shuffled(rows).slice(0,5).map(c=>c.id),index:0,revealed:false,known:0};paintReview()};$('#reviewPool').addEventListener('change',start);$('#restartReview').addEventListener('click',start);start();
+function shell() {
+  const nav = [['home','분야','⌂'],['library','개념 사전','▦'],['bookmarks','북마크','☆'],['lab','실험실','◉'],['markets','시장 데이터','↗']];
+  $('#sidebar').innerHTML = `<a href="#home" class="brand"><span class="brand-icon">f.</span><div>fieldbook<span>FINANCE & ECONOMICS</span></div></a><nav>${nav.map(([id,label,icon]) => `<a href="#${id}" ${route === id ? 'aria-current="page"' : ''} class="nav-item ${route === id ? 'active' : ''}"><span class="nav-icon" aria-hidden="true">${icon}</span>${label}</a>`).join('')}</nav><div class="sidebar-label field-label">분야</div><nav class="field-navigation">${data.fields.map(f => `<a href="#library/${f.id}" ${route === 'library' && sub === f.id ? 'aria-current="page"' : ''}><i style="background:${f.color}"></i>${f.name}</a>`).join('')}</nav><div class="sidebar-bottom"><a href="finance-guide-print.html" target="_blank" rel="noreferrer">전체 내용 인쇄 ↗</a></div>`;
+  const label = nav.find(([id]) => id === route)?.[1] || '개념';
+  $('#topbar').innerHTML = `<button class="icon-button menu-button" data-menu aria-label="메뉴 열기" aria-expanded="false">☰</button><div class="breadcrumb"><a href="#home">Fieldbook</a><span>/</span><b>${label}</b></div><button class="search-trigger" data-open-search><span aria-hidden="true">⌕</span><span>개념 검색</span><kbd>Ctrl K</kbd></button><a class="print-button" href="finance-guide-print.html" target="_blank" rel="noreferrer">인쇄 ↗</a>`;
+  $('#footer').innerHTML = `<span>FIELDBOOK <b>·</b> ${data.edition}</span><span>경제 · 금융 · 재무설계 · 법률</span>`;
 }
-function paintReview(){
- const stage=$('#reviewStage');if(!review.ids.length){stage.innerHTML='<div class="empty-state"><h2>아직 이 목록에 카드가 없어요.</h2><p>전체 개념을 선택하거나 카드에서 복습 상태를 표시해보세요.</p><a href="#library" class="button secondary">개념 둘러보기</a></div>';return}
- const c=byId.get(review.ids[review.index]);if(!c){stage.innerHTML=`<div class="review-complete"><span class="complete-mark">✓</span><p class="eyebrow">A LITTLE CLEARER</p><h2>${review.ids.length}개 개념을 다시 만났어요.</h2><p>기억난 개념 ${review.known}개 · 다시 볼 개념 ${review.ids.length-review.known}개</p><a href="#bookmarks" class="button secondary">내 서재로</a><button class="button primary" id="anotherReview">한 번 더 ↻</button></div>`;$('#anotherReview').onclick=()=>$('#restartReview').click();return}
- stage.innerHTML=`<div class="review-progress"><span>${review.index+1} / ${review.ids.length}</span><div class="progress-track"><span style="width:${review.index/review.ids.length*100}%"></span></div></div><article class="recall-card ${review.revealed?'revealed':''}">${smallTag(c)}<p class="card-en">${escape(c.en)}</p><h2>${escape(c.title)}</h2><p class="recall-question">${escape(c.cue)}</p>${review.revealed?`<div class="recall-answer"><p>${escape(c.summary)}</p><div class="formula">${escape(c.formula)}</div><small>${escape(c.trap)}</small></div><div class="recall-rating"><button class="button secondary" data-rate="again">↻ 다시 볼래요</button><button class="button primary" data-rate="known">✓ 기억났어요</button></div>${anchor(c.id,'전체 설명 보기','review-detail-link')}`:'<div class="recall-placeholder"><span>머릿속으로 한 문장만 떠올려보세요.</span><button class="button primary" id="revealCard">답 확인하기 <kbd>Space</kbd></button></div>'}</article>`;
- if(!review.revealed)$('#revealCard').onclick=()=>{review.revealed=true;paintReview()};
- stage.querySelectorAll('[data-rate]').forEach(b=>b.onclick=()=>{setMemory(c.id,b.dataset.rate);if(b.dataset.rate==='known')review.known++;review.index++;review.revealed=false;paintReview()});
+function home() {
+  $('#main').innerHTML = `<div class="subject-home">${pageHead('금융·경제 노트')}<div class="collection-grid">${data.fields.map(f => `<a href="#library/${f.id}" class="collection-tile" style="--field:${f.color}"><div><span class="collection-no">${f.icon}</span><span class="collection-arrow" aria-hidden="true">↗</span></div><span class="collection-en">${f.en}</span><h2>${f.name}</h2><p>${f.description}</p></a>`).join('')}</div></div>`;
 }
-function setMemory(id,state){saved.known=saved.known.filter(x=>x!==id);saved.again=saved.again.filter(x=>x!==id);saved[state].push(id);saved.reviewedAt[id]=new Date().toISOString();persist()}
-function labPage(){
- const l=LABS.find(x=>x.id===sub);if(!l){$('#main').innerHTML=pageHead('LEARN BY MOVING','개념 실험실','가정을 바꿔보고, 결과가 달라지는 이유를 확인하세요.')+`<div class="lab-grid">${LABS.map((x,i)=>`<a class="lab-tile" href="#lab/${x.id}" style="--field:${x.color}"><div><span class="lab-number">0${i+1}</span><span>↗</span></div><p class="eyebrow">${x.tag}</p><h2>${x.name}</h2><p>${x.description}</p><div class="mini-wave" aria-hidden="true">${[25,42,34,58,45,68,60,82,72,94].map((h,j)=>`<i style="height:${h}%;--delay:${j*80}ms"></i>`).join('')}</div><span class="lab-open">직접 움직여보기 →</span></a>`).join('')}</div>`;return}
- $('#main').innerHTML=`<a href="#lab" class="back-link">← 개념 실험실</a>`+pageHead(l.tag,l.name,l.description)+`<section id="activeLab">${labMarkup(l.id)}</section><section class="lab-linked"><h2>실험과 함께 읽기</h2><div class="concept-grid">${l.concepts.map(id=>card(byId.get(id))).join('')}</div></section>`;mountLab($('#activeLab'),l.id);
+function library() {
+  const isSaved = route === 'bookmarks';
+  const selected = data.fields.some(f => f.id === sub) ? sub : 'all';
+  const heading = isSaved ? '북마크' : selected === 'all' ? '개념 사전' : field(selected).name;
+  $('#main').innerHTML = pageHead(heading) + `<div class="library-toolbar"><div class="field-tabs" role="group" aria-label="분야 필터"><a href="#${isSaved ? 'bookmarks' : 'library'}" class="${selected === 'all' ? 'active' : ''}">전체</a>${data.fields.map(f => `<a href="#${isSaved ? 'bookmarks' : 'library'}/${f.id}" class="${selected === f.id ? 'active' : ''}">${f.name}</a>`).join('')}</div><div class="library-search"><span aria-hidden="true">⌕</span><label class="sr-only" for="librarySearch">개념 검색</label><input id="librarySearch" placeholder="제목 또는 본문 검색" value="${escape(libraryQuery)}"></div></div><div class="library-layout"><aside class="group-filter"><h2>주제</h2><div id="groupButtons"></div></aside><div class="library-content"><div class="result-meta"><strong id="resultCount"></strong></div><div id="conceptGrid" class="concept-grid"></div></div></div>`;
+  const pool = data.concepts.filter(c => (selected === 'all' || c.field === selected) && (!isSaved || bookmarks.includes(c.id)));
+  const groups = ['전체', ...new Set(pool.map(c => c.group))];
+  if (!groups.includes(filterGroup)) filterGroup = '전체';
+  const paintGroups = () => { $('#groupButtons').innerHTML = groups.map(g => `<button data-group="${escape(g)}" class="${filterGroup === g ? 'active' : ''}" aria-pressed="${filterGroup === g}">${escape(g)}<small>${g === '전체' ? pool.length : pool.filter(c => c.group === g).length}</small></button>`).join(''); };
+  const paint = () => {
+    const rows = pool.filter(c => (filterGroup === '전체' || c.group === filterGroup) && matches(c, libraryQuery.trim().toLowerCase()));
+    $('#resultCount').textContent = rows.length + '개 항목';
+    $('#conceptGrid').innerHTML = rows.length ? rows.map(card).join('') : `<div class="empty-state"><h3>${isSaved && !pool.length ? '저장한 북마크가 없습니다.' : '검색 결과가 없습니다.'}</h3><a href="#library" class="button secondary">개념 사전</a></div>`;
+  };
+  $('#librarySearch').addEventListener('input', e => { libraryQuery = e.target.value; paint(); });
+  $('#groupButtons').addEventListener('click', e => { const b = e.target.closest('[data-group]'); if (b) { filterGroup = b.dataset.group; paintGroups(); paint(); } });
+  paintGroups(); paint();
 }
-function globalSearch(q){
- const matchesList=data.concepts.filter(c=>matches(c,q.trim().toLowerCase())).slice(0,q?30:8);$('#searchResults').innerHTML=matchesList.length?matchesList.map(c=>`<a href="#concept/${c.id}" data-search-result><div>${smallTag(c)}<b>${escape(c.title)}</b><p>${escape(c.summary)}</p></div><span>↗</span></a>`).join(''):'<p class="empty-search">일치하는 개념이 없습니다. 다른 검색어를 입력해보세요.</p>';
+function matches(c, q) {
+  return !q || [c.title,c.en,c.group,c.summary,c.formula,...(c.body || [])].join(' ').toLowerCase().includes(q);
 }
-function openSearch(){$('#searchDialog').showModal();$('#globalSearch').value='';globalSearch('');$('#globalSearch').focus()}
-document.addEventListener('click',e=>{
- if(e.target.closest('[data-open-search]'))openSearch();if(e.target.closest('[data-close-search]')||e.target.closest('[data-search-result]'))$('#searchDialog').close();
- const menu=e.target.closest('[data-menu]');if(menu){document.body.classList.toggle('menu-open');syncMenu()}
- if(document.body.classList.contains('menu-open')&&!e.target.closest('#sidebar,[data-menu]')){document.body.classList.remove('menu-open');syncMenu()}
- const b=e.target.closest('[data-bookmark]');if(b){const id=b.dataset.bookmark,had=saved.bookmarks.includes(id);saved.bookmarks=had?saved.bookmarks.filter(x=>x!==id):[...saved.bookmarks,id];persist();document.querySelectorAll(`[data-bookmark="${id}"]`).forEach(x=>{x.classList.toggle('selected',!had);x.setAttribute('aria-pressed',String(!had));x.textContent=x.classList.contains('bookmark-button')?had?'☆':'★':had?'☆ 북마크':'★ 담아둔 개념'});if($('#bookmarkCount'))$('#bookmarkCount').textContent=saved.bookmarks.length;toast(had?'북마크에서 뺐습니다.':'나의 북마크에 담았습니다.');if(route==='bookmarks')library()}
- const m=e.target.closest('[data-memory]');if(m){setMemory(m.dataset.id,m.dataset.memory);document.querySelectorAll('[data-memory]').forEach(x=>{const active=x.dataset.memory===m.dataset.memory;x.classList.toggle('active',active);x.setAttribute('aria-pressed',String(active))});toast(m.dataset.memory==='known'?'기억나는 개념으로 표시했습니다.':'다시 볼 개념에 모았습니다.')}
- const clear=e.target.closest('[data-clear-note]');if(clear){delete saved.notes[clear.dataset.clearNote];persist();$('#personalNote').value='';$('#noteStatus').textContent='메모를 지웠습니다.'}
+function concept() {
+  const c = byId.get(sub);
+  if (!c) { $('#main').innerHTML = pageHead('개념을 찾지 못했습니다.', '', '<a href="#library" class="button secondary">개념 사전</a>'); return; }
+  const f = field(c.field), group = data.concepts.filter(x => x.field === c.field && x.group === c.group), index = group.findIndex(x => x.id === c.id);
+  const prev = group[index - 1], next = group[index + 1];
+  const paragraphs = c.body || [c.summary, c.detail, c.example, c.trap];
+  const lab = c.lab && LABS.find(l => l.id === c.lab);
+  $('#main').innerHTML = `<div class="reading-page"><div class="detail-breadcrumb"><a href="#library/${f.id}">${f.name}</a><span>/</span>${escape(c.group)}</div><header class="concept-heading"><div><p class="detail-en">${escape(c.en)}</p><h1>${escape(c.title)}</h1></div>${bookmarkButton(c)}</header><article class="concept-article"><div class="prose">${paragraphs.map((p,i) => `<p>${escape(p)}</p>${i === 1 ? `<div class="article-formula"><span>식 · 구조</span><div class="formula">${escape(c.formula)}</div></div>` : ''}`).join('')}</div>${lab ? `<div class="article-tool"><span>관련 계산</span><a href="#lab/${lab.id}">${escape(lab.name)} ↗</a></div>` : ''}<footer class="article-references"><div class="reference-links"><h2>관련 개념</h2><div>${c.related.map(id => link(id)).join('')}</div></div><div class="source-panel"><h2>참고 자료</h2>${c.regulatory ? '<p>제도의 적용 대상·한도·세율·기한은 해당 시점의 법령과 공식 안내를 기준으로 합니다.</p>' : ''}<div>${c.sources.map(id => `<a href="${escape(data.sources[id].url)}" target="_blank" rel="noreferrer">${escape(data.sources[id].name)} ↗</a>`).join('')}</div></div></footer></article><nav class="concept-pager" aria-label="같은 주제 항목">${prev ? link(prev.id, '← ' + prev.title) : '<span></span>'}${next ? link(next.id, next.title + ' →') : ''}</nav></div>`;
+}
+function labPage() {
+  const lab = LABS.find(x => x.id === sub);
+  if (!lab) {
+    $('#main').innerHTML = pageHead('실험실') + `<div class="lab-grid">${LABS.map((x,i) => `<a class="lab-tile" href="#lab/${x.id}" style="--field:${x.color}"><div><span class="lab-number">0${i+1}</span><span aria-hidden="true">↗</span></div><h2>${x.name}</h2><p>${x.description}</p><div class="mini-wave" aria-hidden="true">${[25,42,34,58,45,68,60,82,72,94].map((h,j) => `<i style="height:${h}%;--delay:${j*80}ms"></i>`).join('')}</div></a>`).join('')}</div>`;
+    return;
+  }
+  $('#main').innerHTML = `<a href="#lab" class="back-link">← 실험실</a>` + pageHead(lab.name, lab.description) + `<section id="activeLab">${labMarkup(lab.id)}</section><div class="reference-links lab-references"><h2>관련 개념</h2><div>${lab.concepts.map(id => link(id)).join('')}</div></div>`;
+  mountLab($('#activeLab'), lab.id);
+}
+function marketPage() {
+  $('#main').innerHTML = pageHead('시장 데이터') + marketMarkup();
+  cleanup = mountMarkets($('#marketRoot'));
+}
+function globalSearch(q) {
+  const query = q.trim().toLowerCase();
+  if (!query) { $('#searchResults').innerHTML = '<p class="empty-search">제목이나 본문의 단어로 검색합니다.</p>'; return; }
+  const rows = data.concepts.filter(c => matches(c, query)).slice(0,30);
+  $('#searchResults').innerHTML = rows.length ? rows.map(c => `<a href="#concept/${c.id}" data-search-result><div>${tag(c)}<b>${escape(c.title)}</b><p>${escape(c.summary)}</p></div><span aria-hidden="true">↗</span></a>`).join('') : '<p class="empty-search">검색 결과가 없습니다.</p>';
+}
+function openSearch() { $('#searchDialog').showModal(); $('#globalSearch').value = ''; globalSearch(''); $('#globalSearch').focus(); }
+document.addEventListener('click', e => {
+  if (e.target.closest('[data-open-search]')) openSearch();
+  if (e.target.closest('[data-close-search],[data-search-result]')) $('#searchDialog').close();
+  if (e.target.closest('[data-menu]')) { document.body.classList.toggle('menu-open'); syncMenu(); }
+  if (document.body.classList.contains('menu-open') && !e.target.closest('#sidebar,[data-menu]')) closeMenu();
+  const b = e.target.closest('[data-bookmark]');
+  if (b) {
+    const id = b.dataset.bookmark, had = bookmarks.includes(id);
+    bookmarks = had ? bookmarks.filter(x => x !== id) : [...bookmarks,id];
+    const persisted = saveBookmarks();
+    document.querySelectorAll(`[data-bookmark="${id}"]`).forEach(x => {
+      x.classList.toggle('selected', !had); x.setAttribute('aria-pressed', String(!had));
+      x.textContent = x.classList.contains('bookmark-button') ? (had ? '☆' : '★') : (had ? '☆ 북마크' : '★ 북마크됨');
+    });
+    toast(persisted ? (had ? '북마크 해제' : '북마크 저장') : '브라우저 저장이 제한되어 현재 화면에서만 유지됩니다.');
+    if (route === 'bookmarks') library();
+  }
 });
-document.addEventListener('keydown',e=>{if((e.ctrlKey||e.metaKey)&&e.key.toLowerCase()==='k'){e.preventDefault();openSearch()}if(e.key==='Escape'){document.body.classList.remove('menu-open');syncMenu()}if(e.code==='Space'&&route==='review'&&!$('#searchDialog').open&&!['INPUT','TEXTAREA','SELECT','BUTTON','A'].includes(document.activeElement.tagName)&&$('#revealCard')){e.preventDefault();$('#revealCard').click()}});
-$('#globalSearch').addEventListener('input',e=>globalSearch(e.target.value));$('#searchDialog').addEventListener('click',e=>{if(e.target===$('#searchDialog')){const r=e.target.getBoundingClientRect();if(e.clientX<r.left||e.clientX>r.right||e.clientY<r.top||e.clientY>r.bottom)e.target.close()}});
-window.addEventListener('hashchange',navigate);
-async function boot(){try{const res=await fetch('content.json');if(!res.ok)throw Error('HTTP '+res.status);data=await res.json();byId=new Map(data.concepts.map(c=>[c.id,c]));for(const k of ['known','again','bookmarks'])saved[k]=[...new Set(saved[k])].filter(id=>byId.has(id));navigate()}catch(e){$('#main').innerHTML='<div class="empty-state"><h1>서재를 열지 못했습니다.</h1><p>파일을 직접 열었다면 HTTP 서버로 접속해주세요. 연결을 확인한 뒤 다시 시도할 수 있습니다.</p><button class="button primary" id="retryBoot">다시 시도</button><a href="finance-guide-print.html">인쇄용 노트 읽기</a></div>';$('#retryBoot').onclick=boot;console.error(e)}}
+document.addEventListener('keydown', e => {
+  if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'k' && data) { e.preventDefault(); openSearch(); }
+  if (e.key === 'Escape') closeMenu();
+});
+$('#globalSearch').addEventListener('input', e => globalSearch(e.target.value));
+$('#searchDialog').addEventListener('click', e => {
+  if (e.target !== $('#searchDialog')) return;
+  const r = e.target.getBoundingClientRect();
+  if (e.clientX < r.left || e.clientX > r.right || e.clientY < r.top || e.clientY > r.bottom) e.target.close();
+});
+window.addEventListener('hashchange', navigate);
+async function boot() {
+  try {
+    const response = await fetch('content.json');
+    if (!response.ok) throw Error('HTTP ' + response.status);
+    data = await response.json(); byId = new Map(data.concepts.map(c => [c.id,c]));
+    bookmarks = [...new Set(bookmarks)].filter(id => byId.has(id));
+    navigate();
+  } catch (e) {
+    $('#main').innerHTML = '<div class="empty-state"><h1>내용을 불러오지 못했습니다.</h1><p>연결을 확인한 뒤 다시 시도해주세요.</p><button class="button primary" id="retryBoot">다시 시도</button><a href="finance-guide-print.html">인쇄용 문서</a></div>';
+    $('#retryBoot').onclick = boot; console.error(e);
+  }
+}
 boot();
