@@ -411,3 +411,16 @@ body.simulation-layout{height:100dvh;overflow:clip}
   .simulation-layout .topbar .search-trigger{min-width:34px;width:34px;height:33px;padding:5px;justify-content:center;flex:0 0 34px}
   .simulation-layout .topbar .search-trigger>span:not(:first-child),.simulation-layout .topbar .search-trigger kbd{display:none}
 }
+.sim-experiment-dialog {width:min(760px,calc(100vw - 24px));max-height:90vh;overflow:auto;border:1px solid #ccd3df;border-radius:16px;padding:24px;background:#fff;color:#202b3c;box-shadow:0 20px 90px #17243a40;}
+.sim-experiment-dialog::backdrop {background:#12203470;}
+.sim-experiment-dialog p {font-size:13px;line-height:1.65;margin:12px 0;}
+.sim-experiment-heading {display:flex;justify-content:space-between;align-items:center;gap:12px;}
+.sim-experiment-dialog h2 {font-size:21px;margin:0;}.sim-experiment-dialog h3 {font-size:15px;margin:18px 0 10px;}
+.sim-experiment-dialog section {border-top:1px solid #e2e7ef;margin-top:20px;padding-top:4px;}
+.sim-model-grid {display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:12px;margin:14px 0;}
+.sim-model-grid label {display:flex;flex-direction:column;font-size:13px;gap:4px;min-width:0;}.sim-model-grid small{color:#64748b;}
+.sim-model-grid input,.sim-model-grid select {width:100%;min-width:0;height:38px;border:1px solid #cbd5e1;border-radius:6px;padding:6px;background:#fff;color:#202b3c;}
+.sim-experiment-dialog button {padding:9px 12px;border:1px solid #cbd5e1;border-radius:7px;background:#f4f7fb;color:#202b3c;cursor:pointer;font-size:13px;}
+.sim-experiment-dialog button:disabled {opacity:.45;cursor:default;}.sim-experiment-actions{display:flex;flex-wrap:wrap;gap:8px;}
+.sim-model-note{color:#64748b;}#simExperimentNotice{color:#2457a3;min-height:22px;}
+@media(max-width:540px){.sim-experiment-dialog{padding:16px;}.sim-model-grid{grid-template-columns:1fr;}}

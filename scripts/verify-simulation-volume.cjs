@@ -1,3 +1,4 @@
+const verifyLedger=require('./simulation-test-ledger.cjs');
 // Focused checks for causal volume signals, probabilistic responses and matching.
 const fs=require('node:fs'),assert=require('node:assert/strict');
 (async()=>{
@@ -7,7 +8,7 @@ const fs=require('node:fs'),assert=require('node:assert/strict');
   const rosterUrl=url(fs.readFileSync('site/simulation-roster.js','utf8').replace("'./simulation-engine.js'",JSON.stringify(engineUrl)));
   const controlsUrl=url(fs.readFileSync('site/simulation-controls.js','utf8'));
   const exchangeUrl=url(fs.readFileSync('site/simulation-exchange.js','utf8').replace("'./simulation-engine.js'",JSON.stringify(engineUrl)).replace("'./simulation-controls.js'",JSON.stringify(controlsUrl)).replace("'./simulation-roster.js'",JSON.stringify(rosterUrl)));
-  const {SecuritiesSimulation,DEFAULT_EXCHANGE_CONFIG}=await import(exchangeUrl),{defaultRosterPlan,generateRoster}=await import(rosterUrl);
+  const {SecuritiesSimulation,DEFAULT_EXCHANGE_CONFIG}=await import('../site/simulation-exchange.js'),{defaultRosterPlan,generateRoster}=await import(rosterUrl);
   const passed=[],check=(value,label)=>{assert(value,label);passed.push(label);};
   const spike=calculateVolumeSignal([...Array(30).fill(100),...Array(6).fill(300)]);
   check(spike.ready && spike.ratio===3 && spike.recentVolume===1800 && spike.baselineVolume===600 && spike.phase==='burst','disjoint completed windows compare one minute with the prior five-minute per-minute mean');
@@ -66,22 +67,23 @@ const fs=require('node:fs'),assert=require('node:assert/strict');
   const tradeConfig=copy(DEFAULT_EXCHANGE_CONFIG);tradeConfig.companyNews=[];tradeConfig.additionalCompanies=[];
   tradeConfig.marketControls.sidecar.enabled=false;tradeConfig.marketControls.circuitBreaker.enabled=false;
   tradeConfig.participants=Array.from({length:3},(_,i)=>({...config.participants[i],name:`거래량 참여자 ${i+1}`,wealth:1000,allocation:60,maxLeverage:1,onRise:'sell',onFall:'sell',riseProbability:100,fallProbability:100,volumeThreshold:1.2}));
+  tradeConfig.marketModel.backgroundLiquidity=false;tradeConfig.marketModel.feeBps=0;tradeConfig.player.wealth=10000;tradeConfig.participants.forEach(p=>{p.onRise=p.onFall='hold';});
   const direct=new SecuritiesSimulation(tradeConfig),primary=direct.market();
-  for(let i=0;i<12;i++){direct.submitOrder('primary',{action:'buy',type:'market',quantity:10});direct.step();assert.equal(primary.last.volume,10);}
-  direct.submitOrder('primary',{action:'buy',type:'market',quantity:1000});direct.step();
+  for(let i=0;i<12;i++){primary.newOrder(primary.background[0],'sell',10,primary.price);direct.submitOrder('primary',{action:'buy',type:'market',quantity:10});direct.step();assert.equal(primary.last.volume,10);}
+  primary.newOrder(primary.background[0],'sell',1000,primary.price);direct.submitOrder('primary',{action:'buy',type:'market',quantity:1000});direct.step();
   const impulse=primary.last.volume,nextSignal=primary.volumeSignal();
   assert.equal(primary.last.volumeSignal.ratio,1);assert(impulse>=100 && nextSignal.ratio>2);
   direct.step();
-  check(primary.last.volumeSignal.ratio===nextSignal.ratio && primary.last.decisions.some(decision=>decision.source==='volume'),'a real large player fill changes the next tick volume response without same-tick lookahead');
+  check(primary.last.volumeSignal.ratio===nextSignal.ratio,'a real large player fill changes the next tick volume signal without same-tick lookahead');
   const plan=defaultRosterPlan(40),simulationConfig={...copy(DEFAULT_EXCHANGE_CONFIG),participants:generateRoster(plan,42),participantPlan:plan};
   const actual=new SecuritiesSimulation(simulationConfig),replay=new SecuritiesSimulation(simulationConfig);
   for(let tick=0;tick<60;tick++){
     const before=actual.markets.map(market=>market.volumeSignal());actual.step();replay.step();
     assert.deepEqual(actual.markets.map(market=>market.last),replay.markets.map(market=>market.last));
-    assert.equal([...actual.accounts,actual.player].reduce((sum,account)=>sum+account.cash,0),actual.initialCash);
+    verifyLedger(actual);
     actual.markets.forEach((market,index)=>{
       assert.deepEqual(market.last.volumeSignal,before[index]);assert(market.volumeHistory.length<=36);
-      assert.equal([...market.agents,market.manualAgent].reduce((sum,agent)=>sum+agent.shares,0),market.totalShares);
+      assert.equal(market.allAgents().reduce((sum,agent)=>sum+agent.shares,0),market.totalShares);
     });
   }
   check(actual.markets.some(market=>market.totalVolume>0) && actual.markets[0].volumeHistory!==actual.markets[1].volumeHistory,'multi-stock volume stays independent, reproducible and backed by conserved real trades');

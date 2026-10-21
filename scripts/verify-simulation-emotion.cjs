@@ -1,3 +1,4 @@
+const verifyLedger=require('./simulation-test-ledger.cjs');
 // Focused checks for persistent emotion, conditional actions and real settlement.
 const fs=require('node:fs'),assert=require('node:assert/strict');
 (async()=>{
@@ -7,7 +8,7 @@ const fs=require('node:fs'),assert=require('node:assert/strict');
   const rosterUrl=url(fs.readFileSync('site/simulation-roster.js','utf8').replace("'./simulation-engine.js'",JSON.stringify(engineUrl)));
   const controlsUrl=url(fs.readFileSync('site/simulation-controls.js','utf8'));
   const exchangeUrl=url(fs.readFileSync('site/simulation-exchange.js','utf8').replace("'./simulation-engine.js'",JSON.stringify(engineUrl)).replace("'./simulation-controls.js'",JSON.stringify(controlsUrl)).replace("'./simulation-roster.js'",JSON.stringify(rosterUrl)));
-  const {SecuritiesSimulation,DEFAULT_EXCHANGE_CONFIG,normalizeExchangeConfig}=await import(exchangeUrl),{defaultRosterPlan,generateRoster}=await import(rosterUrl);
+  const {SecuritiesSimulation,DEFAULT_EXCHANGE_CONFIG,normalizeExchangeConfig}=await import('../site/simulation-exchange.js'),{defaultRosterPlan,generateRoster}=await import(rosterUrl);
   const passed=[],check=(value,label)=>{assert(value,label);passed.push(label);};
   const traits={emotionInitial:50,emotionSensitivity:100,emotionRecovery:20};
   const shock={momentum:-0.02,tickReturn:-0.01,drawdown:-0.03,crowd:50};
@@ -93,8 +94,8 @@ const fs=require('node:fs'),assert=require('node:assert/strict');
     first.step();replay.step();
     assert.deepEqual(first.markets.map(m=>m.last),replay.markets.map(m=>m.last));
     assert.deepEqual(first.markets.map(m=>m.agents.map(a=>a.emotion)),replay.markets.map(m=>m.agents.map(a=>a.emotion)));
-    assert.equal([...first.accounts,first.player].reduce((sum,account)=>sum+account.cash,0),first.initialCash);
-    for(const market of first.markets){assert(market.emotionSummary().score>=0 && market.emotionSummary().score<=100);assert.equal([...market.agents,market.manualAgent].reduce((sum,agent)=>sum+agent.shares,0),market.totalShares);emotionalOrders+=market.last.decisions.filter(d=>d.source==='emotion' && d.quantity>0).length;}
+    verifyLedger(first);
+    for(const market of first.markets){assert(market.emotionSummary().score>=0 && market.emotionSummary().score<=100);assert.equal(market.allAgents().reduce((sum,agent)=>sum+agent.shares,0),market.totalShares);emotionalOrders+=market.last.decisions.filter(d=>d.source==='emotion' && d.quantity>0).length;}
   }
   check(emotionalOrders>0,'multi-stock emotional trading remains reproducible while conserving actual cash and shares');
   fs.mkdirSync('artifacts/simulation-emotion',{recursive:true});

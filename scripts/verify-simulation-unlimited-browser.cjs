@@ -8,7 +8,7 @@ const dataUrl=source=>'data:text/javascript;base64,'+Buffer.from(source).toStrin
   const controlsUrl=dataUrl(fs.readFileSync('site/simulation-controls.js','utf8'));
   const rosterUrl=dataUrl(fs.readFileSync('site/simulation-roster.js','utf8').replace("'./simulation-engine.js'",JSON.stringify(engineUrl)));
   const exchangeUrl=dataUrl(fs.readFileSync('site/simulation-exchange.js','utf8').replace("'./simulation-engine.js'",JSON.stringify(engineUrl)).replace("'./simulation-controls.js'",JSON.stringify(controlsUrl)).replace("'./simulation-roster.js'",JSON.stringify(rosterUrl)));
-  const {DEFAULT_EXCHANGE_CONFIG}=await import(exchangeUrl);
+  const {DEFAULT_EXCHANGE_CONFIG}=await import('../site/simulation-exchange.js');
   const fixture=JSON.parse(JSON.stringify(DEFAULT_EXCHANGE_CONFIG));
   fixture.companyNews=[];fixture.additionalCompanies.forEach(company=>{company.companyNews=[]});
   fixture.marketControls.sidecar.enabled=false;fixture.marketControls.circuitBreaker.enabled=false;

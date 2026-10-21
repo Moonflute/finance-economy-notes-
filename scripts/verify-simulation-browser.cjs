@@ -19,13 +19,13 @@ const ok = (condition, name) => {assert(condition,name);checks.push(name);};
     await page.goto(url+'/#simulation');
     await page.locator('#simPlay').waitFor();
     const view=async key=>{await page.locator(`[data-sim-tab="${key}"]`).click();};
-    const editParticipant=async (index,section='assets')=>{
+    const editParticipant=async(index,section='assets')=>{
       await view('settings');await page.locator('[data-config-mode="individual"]').click();
-      while(!await page.locator(`[data-participant="${index}"]`).count()){
-        const first=Number(await page.locator('[data-participant]').first().getAttribute('data-participant'));
-        await page.locator(`[data-participant-page="${index<first?-1:1}"]`).click();
+      await page.locator('#simRosterSection').selectOption(section==='risk'?'assets':section);
+      while(!await page.locator(`[data-roster-index="${index}"][data-roster-cell="name"]`).count()){
+        const first=Number(await page.locator('[data-roster-row]').first().getAttribute('data-roster-row'));
+        await page.locator(`[data-roster-row-page="${index<first?-1:1}"]`).click();
       }
-      await page.locator(`[data-participant="${index}"] [data-trait-section="${section}"]`).click();
     };
     ok(await page.locator('#sidebar a[href="#simulation"][aria-current="page"]').count()===1,'new navigation route is active');
     ok((await page.title()).includes('증권시장 시뮬레이션'),'route sets a meaningful page title');
@@ -78,37 +78,36 @@ const ok = (condition, name) => {assert(condition,name);checks.push(name);};
     await page.locator('.subject-home').waitFor();
     await page.waitForTimeout(500);
     await page.evaluate(()=>{location.hash='#simulation';});
-    await page.locator('#simulationRoot').waitFor();
+    await page.locator('#simClock').waitFor();
     ok((await page.locator('#simClock').innerText())===awayClock,'navigation pauses the simulation and keeps its results');
     ok(!(await page.locator('#simRunStatus').innerText()).includes('실행 중'),'returning to the tab does not restart a hidden timer');
 
     await editParticipant(0);
-    await page.locator('#sim-0-wealth').fill('25000');
+    await page.locator('[data-roster-index="0"][data-roster-cell="wealth"]').fill('25000');
     ok(await page.locator('#simPlay').isDisabled(),'editing a participant prevents running an unapplied draft');
     ok(await page.locator('#simDiscard').isVisible(),'pending edits can be discarded');
-    await page.locator('#simAddParticipant').click();
+    await page.locator('#simRosterCount').fill('7');await page.locator('[data-roster-generate]').click();
     ok((await page.locator('#simParticipantPager').innerText()).includes('/ 7명'),'participants can be added');
-    await page.locator('[data-remove="6"]').click();
+    await page.locator('#simRosterCount').fill('6');await page.locator('[data-roster-generate]').click();
     ok((await page.locator('#simParticipantPager').innerText()).includes('/ 6명'),'participants can be removed');
     await page.locator('#simDiscard').click();
-    ok((await page.locator('#sim-0-wealth').inputValue())==='15000','discard restores the applied participant settings');
+    ok((await page.locator('[data-roster-index="0"][data-roster-cell="wealth"]').inputValue())==='15000','discard restores the applied participant settings');
     await page.locator('[data-settings-base]').click();
     await page.locator('#simCompanyInput').fill('테스트 기업');
     await editParticipant(0);
-    await page.locator('#sim-0-wealth').fill('25000');
+    await page.locator('[data-roster-index="0"][data-roster-cell="wealth"]').fill('25000');
     await editParticipant(0,'risk');
-    await page.locator('#sim-0-risk').focus();
-    await page.keyboard.press('Home');
-    await page.keyboard.press('ArrowRight');
-    ok((await page.locator('label[for="sim-0-risk"] output').innerText())==='1%','risk slider keeps its displayed value in sync');
+    await page.locator('[data-roster-index="0"][data-roster-cell="risk"]').fill('1');
+    ok(await page.locator('[data-roster-index="0"][data-roster-cell="risk"]').inputValue()==='1','risk cell keeps its value in sync');
     for(let i=0;i<6;i++) {
       await editParticipant(i,'rise');
-      await page.locator(`#sim-${i}-onRise`).selectOption('hold');
+      await page.locator(`[data-roster-index="${i}"][data-roster-cell="onRise"]`).selectOption('hold');
       await editParticipant(i,'fall');
-      await page.locator(`#sim-${i}-onFall`).selectOption('hold');
+      await page.locator(`[data-roster-index="${i}"][data-roster-cell="onFall"]`).selectOption('hold');
     }
     await page.locator('#simConfig button[type="submit"]').click();
     ok((await page.locator('#simCompany').innerText())==='테스트 기업','applying settings changes the simulated company');
+    await page.locator('#simExperimentOpen').click();await page.locator('#simBackgroundLiquidity').selectOption('false');await page.locator('#simModelForm button').click();await page.locator('#simExperimentClose').click();
     ok((await page.locator('#simClock').innerText())==='09:00:00','applying settings starts a fresh experiment');
     await page.locator('#simStep').click();
     ok((await page.locator('#simPrice').innerText())==='10,000원' && (await page.locator('#simVolume').innerText())==='0주','all-hold settings actually produce a flat market with zero volume');
@@ -126,6 +125,7 @@ const ok = (condition, name) => {assert(condition,name);checks.push(name);};
     ok((await page.locator('#simCompanyInput').inputValue())==='테스트 기업' && (await page.locator('#simClock').innerText())==='09:00:00','reload restores settings and creates a new paused experiment');
 
     await view('settings');
+    await page.locator('[data-settings-base]').click();
     await page.locator('#simDefaults').click();
     await page.locator('#simConfig button[type="submit"]').click();
     for(let i=0;i<40;i++)await page.locator('#simStep').click();

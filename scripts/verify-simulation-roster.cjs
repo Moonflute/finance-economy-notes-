@@ -1,3 +1,4 @@
+const verifyLedger=require('./simulation-test-ledger.cjs');
 // Focused checks for exact headcounts, automatic values and individual overrides.
 const fs=require('node:fs'),assert=require('node:assert/strict');
 (async()=>{
@@ -8,7 +9,7 @@ const fs=require('node:fs'),assert=require('node:assert/strict');
   const exchangeUrl=url(fs.readFileSync('site/simulation-exchange.js','utf8').replace("'./simulation-engine.js'",JSON.stringify(engineUrl)).replace("'./simulation-controls.js'",JSON.stringify(controlsUrl)).replace("'./simulation-roster.js'",JSON.stringify(rosterUrl)));
   const {PARTICIPANT_ATTRIBUTES,defaultPopulation,generatePopulation}=await import(engineUrl);
   const {defaultRosterPlan,normalizeRosterPlan,generateRoster,rosterCounts,rosterGroupCounts,rosterPlanFromPopulation}=await import(rosterUrl);
-  const {SecuritiesSimulation,DEFAULT_EXCHANGE_CONFIG,normalizeExchangeConfig}=await import(exchangeUrl);
+  const {SecuritiesSimulation,DEFAULT_EXCHANGE_CONFIG,normalizeExchangeConfig}=await import('../site/simulation-exchange.js');
   const passed=[],check=(value,label)=>{assert(value,label);passed.push(label);};
   const risk=PARTICIPANT_ATTRIBUTES.find(a=>a.key==='risk');
   const plan=defaultRosterPlan(20);
@@ -49,8 +50,8 @@ const fs=require('node:fs'),assert=require('node:assert/strict');
   const full=defaultRosterPlan(100),exchange=new SecuritiesSimulation({...config,participants:generateRoster(full,42),participantPlan:full});
   for(let i=0;i<12;i++)exchange.step();
   check(exchange.accounts.length===100 && exchange.markets.every(market=>market.agents.length===100),'every generated row becomes one account shared across the actual stock markets');
-  assert.equal([...exchange.accounts,exchange.player].reduce((sum,account)=>sum+account.cash,0),exchange.initialCash);
-  for(const market of exchange.markets)assert.equal([...market.agents,market.manualAgent].reduce((sum,agent)=>sum+agent.shares,0),market.totalShares);
+  verifyLedger(exchange);
+  for(const market of exchange.markets)assert.equal(market.allAgents().reduce((sum,agent)=>sum+agent.shares,0),market.totalShares);
   passed.push('cash and stock totals remain conserved with 100 generated participants');
   fs.mkdirSync('artifacts/simulation-roster',{recursive:true});
   fs.writeFileSync('artifacts/simulation-roster/engine-verification.json',JSON.stringify({passed:passed.length,checks:passed},null,2));

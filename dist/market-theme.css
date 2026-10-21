@@ -746,3 +746,13 @@ body{letter-spacing:-.025em}
   .simulation-layout #simEmotionPager{font-size:9px;flex-basis:26px;min-height:26px}
   .simulation-layout .sim-emotion-note{font-size:9px}
 }
+
+@media (max-width:700px) and (max-height:700px) {
+  .simulation-layout .sim-results-table {font-size:12px;}
+  .simulation-layout .sim-results-table tbody tr {padding:6px 0;gap:6px 10px;}
+  .simulation-layout .sim-results-table tbody th {padding-bottom:5px;}
+  .simulation-layout .sim-results-table tbody th>small,
+  .simulation-layout .sim-results-table tbody td>small {margin-top:2px;font-size:9px;}
+  .simulation-layout .sim-results-table td::before {line-height:1.2;margin-bottom:2px;font-size:9px;}
+  .simulation-layout .sim-results-table .sim-decision-reason {font-size:9px;line-height:1.4;}
+}

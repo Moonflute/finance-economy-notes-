@@ -823,8 +823,8 @@ export function aggregateCandles(candles, minutes = 1) {
 }
 
 export function marketTime(tick, seconds = true) {
-  const elapsed = 9 * 3600 + tick * TICK_SECONDS;
-  const day = Math.floor(elapsed / 86400);
+  const day = Math.max(0,Math.floor((tick-1)/2340));
+  const elapsed = 9 * 3600 + (tick-day*2340) * TICK_SECONDS;
   const time = [Math.floor(elapsed / 3600) % 24, Math.floor(elapsed / 60) % 60, elapsed % 60].map(n => String(n).padStart(2,'0'));
   return `${day ? `D+${day} ` : ''}${time.slice(0, seconds ? 3 : 2).join(':')}`;
 }

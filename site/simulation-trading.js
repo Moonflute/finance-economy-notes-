@@ -59,7 +59,7 @@ export class TradingPanel {
   pager(attribute,page,total,size){return `<button type="button" ${attribute}="-1" ${page<=0?'disabled':''} aria-label="이전 페이지">←</button><span>${page+1} / ${Math.max(1,Math.ceil(total/size))}</span><button type="button" ${attribute}="1" ${page>=Math.ceil(total/size)-1?'disabled':''} aria-label="다음 페이지">→</button>`;}
   paint(){
     const {exchange,market,dirty,running}=this.getContext(),state=this.state,player=exchange.playerSnapshot(),order=market.manualOrder;
-    const halted=exchange.controls.snapshot().halted,blocked=dirty || halted;
+    const halted=exchange.controls.snapshot().halted,blocked=dirty || halted || exchange.sessionClosed;
     this.element.hidden=!state.show;this.toggle.textContent=state.show?'호가·차트':'직접 거래';this.toggle.setAttribute('aria-expanded',String(state.show));
     this.root.querySelector('.sim-terminal').dataset.trading=String(state.show);
     for(const button of this.element.querySelectorAll('[data-trading-view]'))button.setAttribute('aria-pressed',String(button.dataset.tradingView===state.view));
@@ -81,7 +81,7 @@ export class TradingPanel {
     this.$('#simOrderEstimate').textContent=Number.isFinite(quantity*price)?`예상 ${money(quantity*price)}`:'수량과 가격을 입력하세요';
     this.$('[data-order-max]').hidden=!Number.isFinite(maximum);
     this.$('#simOrderCapacity').textContent=Number.isFinite(maximum)?`최대 ${fmt(maximum)}주`:'자금 무제한 · 실제 반대 주문만 체결';
-    this.$('#simSubmitOrder').textContent=halted?'거래 재개 대기':`${actionLabel} 주문`;
+    this.$('#simSubmitOrder').textContent=exchange.sessionClosed?'장 마감':halted?'거래 재개 대기':`${actionLabel} 주문`;
     this.$('#simSubmitOrder').disabled=blocked || Boolean(isActive(order));
     this.$('#simSubmitOrder').dataset.side=state.action;
     this.$('#simManualOrderStatus').innerHTML=order?`<span>${halted?'거래 중단 · ':''}${statusLabels[order.status]} · ${fmt(order.filledQuantity)} / ${fmt(order.quantity)}주${order.filledQuantity?` · 평균 ${fmt(order.amount/order.filledQuantity,2)}원`:''}</span>${isActive(order)?'<button type="button" data-cancel-manual>주문 취소</button>':''}`:`<span>${halted?'가상 시간을 진행하면 거래가 재개됩니다.':'일시정지 중 주문하면 가상 10초가 진행됩니다.'}</span>`;

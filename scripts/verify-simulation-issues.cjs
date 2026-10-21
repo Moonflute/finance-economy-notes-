@@ -1,3 +1,4 @@
+const verifyLedger=require('./simulation-test-ledger.cjs');
 // Focused checks for live company issues and asymmetric information access.
 const fs=require('node:fs'),assert=require('node:assert/strict');
 (async()=>{
@@ -6,7 +7,7 @@ const fs=require('node:fs'),assert=require('node:assert/strict');
   const engine=await import(engineUrl),{MarketSimulation,DEFAULT_CONFIG,normalizeConfig,normalizeCompanyIssue,normalizeCompanyNews,defaultPopulation,generatePopulation}=engine;
   const rosterUrl='data:text/javascript;base64,'+Buffer.from(fs.readFileSync('site/simulation-roster.js','utf8').replace("'./simulation-engine.js'",JSON.stringify(engineUrl))).toString('base64');
   const exchangeSource=fs.readFileSync('site/simulation-exchange.js','utf8').replace("'./simulation-engine.js'",JSON.stringify(engineUrl)).replace("'./simulation-controls.js'",JSON.stringify(controlsUrl)).replace("'./simulation-roster.js'",JSON.stringify(rosterUrl));
-  const {SecuritiesSimulation,DEFAULT_EXCHANGE_CONFIG}=await import(url(exchangeSource));
+  const {SecuritiesSimulation,DEFAULT_EXCHANGE_CONFIG}=await import('../site/simulation-exchange.js');
   const passed=[],check=(condition,label)=>{assert(condition,label);passed.push(label);};
   const fixture=()=>({...copy(DEFAULT_CONFIG),companyNews:[],participants:[['confirm','insider'],['confirm','public'],['anticipate','public'],['contrarian','insider'],['ignore','insider'],['confirm','auto']].map(([newsStyle,newsAccess],i)=>({name:`참여자 ${i+1}`,wealth:1000,risk:50,allocation:50,maxLeverage:2,onRise:'hold',onFall:'hold',riseProbability:100,fallProbability:100,newsStyle,newsAccess,newsProbability:100,newsSensitivity:100,newsDelay:0}))});
   const issue={title:'공급 계약 체결',actualImpact:12,durationMinutes:10,announceDelayMinutes:2,insiderMode:'enabled',insiderLeadMinutes:2,insiderRatio:0};
@@ -65,9 +66,9 @@ const fs=require('node:fs'),assert=require('node:assert/strict');
   const a=new SecuritiesSimulation(exchangeConfig),b=new SecuritiesSimulation(exchangeConfig);
   for(const exchange of [a,b]){
     exchange.triggerControl('breaker');exchange.triggerCompanyIssue('primary',{...issue,announceDelayMinutes:0,insiderMode:'none'});
-    for(let tick=0;tick<18;tick++){
-      exchange.step();assert.equal([...exchange.accounts,exchange.player].reduce((sum,person)=>sum+person.cash,0),exchange.initialCash);
-      assert.equal(exchange.market().agents.reduce((sum,person)=>sum+person.shares,exchange.market().manualAgent.shares),exchange.market().totalShares);
+    for(let tick=0;tick<78;tick++){
+      exchange.step();verifyLedger(exchange);
+      assert.equal(exchange.market().allAgents().reduce((sum,person)=>sum+person.shares,0),exchange.market().totalShares);
       if(tick<6)assert.equal(exchange.market().totalVolume,0);
     }
   }

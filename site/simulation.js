@@ -1,3 +1,4 @@
+import {mountExperiments} from './simulation-experiments.js';
 import {PARTICIPANT_ATTRIBUTES, REACTIONS, marketTime, TICKS_PER_CANDLE, MAX_PARTICIPANTS, defaultPopulation, distributionGroups, allocatePopulation, COMPANY_FINANCIAL_FIELDS, DEFAULT_FINANCIALS, calculateCompanyMetrics, MACRO_FIELDS, DEFAULT_MACRO, MACRO_BASELINE, MACRO_PRESETS, COMPANY_CYCLE_TYPES, COMPANY_EXPOSURE_FIELDS, DEFAULT_COMPANY_PROFILE, COMPANY_NEWS_FIELDS, DEFAULT_COMPANY_NEWS, MAX_COMPANY_NEWS} from './simulation-engine.js';
 import {SecuritiesSimulation,DEFAULT_EXCHANGE_CONFIG as DEFAULT_CONFIG,normalizeExchangeConfig as normalizeConfig} from './simulation-exchange.js';
 import {TradingPanel} from './simulation-trading.js';
@@ -69,7 +70,7 @@ function financialEditorMarkup() {
 
 function macroConfigMarkup() {
   const values={...DEFAULT_MACRO,...session.draft.macro};
-  return `<div class="sim-macro-presets" role="group" aria-label="거시경제 시나리오">${Object.entries(MACRO_PRESETS).map(([key,preset])=>`<button type="button" data-macro-preset="${key}" aria-pressed="${Object.entries(preset.values).every(([field,value])=>Number(values[field])===value)}">${preset.label}</button>`).join('')}</div><div class="sim-macro-fields">${MACRO_FIELDS.map(field=>`<label class="sim-field" for="sim-macro-${field.key}"><span>${field.label}<small>${field.unit}</small></span><input id="sim-macro-${field.key}" data-macro-field="${field.key}" type="number" min="${field.min}" max="${field.max}" step="${field.step}" value="${esc(values[field.key])}" required></label>`).join('')}</div><p class="sim-finance-hint">고정 연간 시나리오입니다. 모형의 중립 기준은 GDP ${MACRO_BASELINE.gdpGrowth}%, 물가 ${MACRO_BASELINE.inflation}%, 금리 ${MACRO_BASELINE.policyRate}%입니다. 반영도 0%는 경기 영향을 제외합니다.</p>`;
+  return `<div class="sim-macro-presets" role="group" aria-label="거시경제 시나리오">${Object.entries(MACRO_PRESETS).map(([key,preset])=>`<button type="button" data-macro-preset="${key}" aria-pressed="${Object.entries(preset.values).every(([field,value])=>Number(values[field])===value)}">${preset.label}</button>`).join('')}</div><div class="sim-macro-fields">${MACRO_FIELDS.map(field=>`<label class="sim-field" for="sim-macro-${field.key}"><span>${field.label}<small>${field.unit}</small></span><input id="sim-macro-${field.key}" data-macro-field="${field.key}" type="number" min="${field.min}" max="${field.max}" step="${field.step}" value="${esc(values[field.key])}" required></label>`).join('')}</div><p class="sim-finance-hint">초기 연간 시나리오입니다. 실험실에서 실행 중 변화를 예약할 수 있습니다. 중립 기준은 GDP ${MACRO_BASELINE.gdpGrowth}%, 물가 ${MACRO_BASELINE.inflation}%, 금리 ${MACRO_BASELINE.policyRate}%입니다. 반영도 0%는 경기 영향을 제외합니다.</p>`;
 }
 
 function financialMetricText(key,value,unit,metrics) {
@@ -108,7 +109,7 @@ export function simulationMarkup() {
     <div id="simViewTabs" class="sim-view-tabs" role="tablist" aria-label="시뮬레이션 화면">${[['chart','차트'],['macro','거시경제'],['company','기업 정보'],['participants','참여자'],['activity','체결·분석'],['settings','시장 설정'],['rules','속성·규칙']].map(([key,label]) => `<button type="button" role="tab" id="simView-${key}" data-sim-tab="${key}" aria-controls="simPanel-${key}" aria-selected="${session.view === key}" tabindex="${session.view === key ? 0 : -1}">${label}</button>`).join('')}</div>
     <div class="sim-terminal">
       <div class="sim-quote"><div class="sim-company"><span class="sim-ticker">F</span><div><h2 id="simCompany"></h2><span>FLD · 가상 종목</span></div></div><div class="sim-quote-price"><strong id="simPrice"></strong><span id="simChange"></span></div><div class="sim-clock"><span>시뮬레이션 시간</span><strong id="simClock">09:00:00</strong><small>1틱 = 가상 10초</small></div></div>
-      <div class="sim-terminal-body"><div id="simChart" class="sim-chart"><div class="sim-chart-toolbar"><div class="sim-periods" role="group" aria-label="캔들 주기"><button type="button" data-chart="period" data-period="1" aria-pressed="true">1분</button><button type="button" data-chart="period" data-period="5" aria-pressed="false">5분</button></div><span>캔들 · 거래량</span><div class="sim-chart-actions"><button type="button" data-chart="out" aria-label="차트 축소">−</button><button type="button" data-chart="in" aria-label="차트 확대">+</button><button type="button" data-chart="latest">최근으로 →</button></div></div><div class="sim-ohlc" data-chart-ohlc></div><canvas role="img" tabindex="0" aria-describedby="simChartHelp"></canvas><p id="simChartHelp" class="sim-chart-help">휠로 확대 · 드래그로 이동 · 방향키 이동 / + − 확대 · <span>상승 <i class="sim-up-dot"></i> 하락 <i class="sim-down-dot"></i></span></p></div><aside class="sim-orderbook" aria-label="잔여 호가"><div class="sim-panel-title"><h3>호가</h3><span>이번 틱 잔여 주문</span></div><div class="sim-book-labels"><span>가격 (원)</span><span>수량 (주)</span></div><div id="simAsks" class="sim-book-side"></div><div class="sim-book-mid" id="simBookPrice"></div><div id="simBids" class="sim-book-side"></div><div class="sim-book-summary" id="simBookSummary"></div><p>체결되지 않은 주문은<br>다음 틱에 새로 제출됩니다.</p></aside></div>
+      <div class="sim-terminal-body"><div id="simChart" class="sim-chart"><div class="sim-chart-toolbar"><div class="sim-periods" role="group" aria-label="캔들 주기"><button type="button" data-chart="period" data-period="1" aria-pressed="true">1분</button><button type="button" data-chart="period" data-period="5" aria-pressed="false">5분</button></div><span>캔들 · 거래량</span><div class="sim-chart-actions"><button type="button" data-chart="out" aria-label="차트 축소">−</button><button type="button" data-chart="in" aria-label="차트 확대">+</button><button type="button" data-chart="latest">최근으로 →</button></div></div><div class="sim-ohlc" data-chart-ohlc></div><canvas role="img" tabindex="0" aria-describedby="simChartHelp"></canvas><p id="simChartHelp" class="sim-chart-help">휠로 확대 · 드래그로 이동 · 방향키 이동 / + − 확대 · <span>상승 <i class="sim-up-dot"></i> 하락 <i class="sim-down-dot"></i></span></p></div><aside class="sim-orderbook" aria-label="잔여 호가"><div class="sim-panel-title"><h3>호가</h3><span>가격·시간 우선</span></div><div class="sim-book-labels"><span>가격 (원)</span><span>수량 (주)</span></div><div id="simAsks" class="sim-book-side"></div><div class="sim-book-mid" id="simBookPrice"></div><div id="simBids" class="sim-book-side"></div><div class="sim-book-summary" id="simBookSummary"></div><p>미체결 지정가는 취소·만료까지 유지됩니다.</p></aside></div>
       <div class="sim-metrics"><div><span>시작가 대비</span><strong id="simReturn">0.00%</strong></div><div><span>체결 거래량</span><strong id="simVolume">0주</strong></div><div><span>최대 낙폭</span><strong id="simDrawdown">0.00%</strong></div><div><span>고가 / 저가</span><strong id="simHighLow"></strong></div></div>
     </div>
     <section class="sim-financial-panel"><div class="sim-section-heading"><div><h2 id="simFinancialCompany"></h2><span class="sim-financial-period">연간 실적 · 가상 입력값</span></div><button type="button" class="sim-subtle-button" data-open-financial-settings>재무정보 수정</button></div><div class="sim-financial-tabs" role="group" aria-label="기업 정보 항목">${Object.entries(companySections).map(([key,label])=>`<button type="button" data-financial-view="${key}" aria-pressed="${session.financialView===key}">${label}</button>`).join('')}</div><div id="simCompanyMetrics" class="sim-financial-grid"></div><div class="sim-financial-basis"><div><span>모형 주식 수</span><strong id="simFinancialShares"></strong></div><div><span>재무 참조 주가</span><strong id="simFinancialReference"></strong></div><div><span>재무정보 반영도</span><strong id="simFinancialInfluence"></strong></div></div><p class="sim-financial-note" id="simFinancialNote"></p><div id="simNewsReport" class="sim-news-report" hidden><div class="sim-news-report-toolbar"><label for="simNewsSelect"><span class="sr-only">확인할 기업 소식</span><select id="simNewsSelect"></select></label><time id="simNewsClock"></time></div><div id="simNewsDetail"></div></div></section>
@@ -143,7 +144,7 @@ export function mountSimulation(root) {
   const noticeRow=document.createElement('div');noticeRow.className='sim-notice-row';
   $('#simNotice').before(noticeRow);noticeRow.append($('#simNotice'));
   const controlBadge=document.createElement('button');controlBadge.type='button';controlBadge.id='simControlBadge';controlBadge.className='sim-control-badge';controlBadge.setAttribute('aria-label','시장 안정 상태 보기');noticeRow.append(controlBadge);
-  $('.sim-orderbook>p').textContent='자동 주문은 다음 틱에 다시 제출합니다.';
+  $('.sim-orderbook>p').textContent='미체결 지정가는 취소·만료까지 유지합니다.';
   const playerField=document.createElement('div');playerField.className='sim-field sim-player-funds-field';
   playerField.innerHTML=`<span><label for="simPlayerWealth">내 초기 자금</label><small>만원 · 전 종목 공통</small></span><div class="sim-player-funds-inputs"><select id="simPlayerFundsMode" aria-label="내 자금 설정 방식"><option value="finite">금액 입력</option><option value="unlimited">무제한 ∞</option></select><input id="simPlayerWealth" type="number" min="100" step="any" value="${session.draft.player.wealth}" required></div>`;
   $('.sim-market-fields').append(playerField);
@@ -247,8 +248,11 @@ export function mountSimulation(root) {
       }
     }
     if (session.view==='participants') {
-      const table=$('.sim-results-scroll'), first=$('#simResults tr');
-      const rowHeight=first?.getBoundingClientRect().height || 76;
+      const table=$('.sim-results-scroll');
+      // Reserve room for the full two-line reason. Measuring only the first
+      // participant made page size oscillate when the next page had taller rows,
+      // sometimes moving the user straight back to the first page.
+      const rowHeight=Math.max(110,...[...root.querySelectorAll('#simResults tr')].map(row=>row.getBoundingClientRect().height));
       const header=$('.sim-results-table thead').getBoundingClientRect().height;
       const size=innerWidth<=700 ? 1 : Math.max(1,Math.min(12,Math.floor((table.clientHeight-header)/rowHeight)));
       if (size!==session.resultPageSize) {session.resultPage=Math.floor(session.resultPage*session.resultPageSize/size); session.resultPageSize=size; repaint=true;}
@@ -279,10 +283,10 @@ export function mountSimulation(root) {
   }
   const setControlState = () => {
     $('#simPlay').textContent = running ? '일시정지' : session.market.tick ? '이어서 실행' : '시뮬레이션 시작';
-    $('#simPlay').disabled = session.dirty;
-    $('#simStep').disabled = running || session.dirty;
+    $('#simPlay').disabled = session.dirty || session.exchange.sessionClosed;
+    $('#simStep').disabled = running || session.dirty || session.exchange.sessionClosed;
     $('#simReset').disabled = session.dirty;
-    $('#simRunStatus').textContent = session.dirty ? '설정 변경됨' : running ? '실행 중' : session.market.tick ? '일시정지' : '시작 전';
+    $('#simRunStatus').textContent = session.dirty ? '설정 변경됨' : session.exchange.sessionClosed ? '장 마감 · 실험실 → 다음 거래일' : running ? '실행 중' : session.market.tick ? '일시정지' : '시작 전';
     $('#simRunStatus').classList.toggle('is-running',running);
     $('#simDirtyLabel').textContent = session.dirty ? '변경한 설정을 적용하세요' : '현재 설정 적용됨';
     $('#simDiscard').hidden = !session.dirty;
@@ -314,6 +318,7 @@ export function mountSimulation(root) {
       const previousNews=session.market.newsLog.at(-1);
       const previousControl=session.exchange.controls.events.at(-1);
       for (let i = 0; i < count; i++) session.exchange.step();
+      if(session.exchange.sessionClosed)pause();
       paint();
       setControlState();
       const latest=session.market.newsLog.at(-1);
@@ -324,7 +329,7 @@ export function mountSimulation(root) {
     } catch (error) {pause(); notice(`실행을 중단했습니다. ${error.message}`); return false;}
   };
   const start = () => {
-    if (disposed || session.dirty) return;
+    if (disposed || session.dirty || session.exchange.sessionClosed) return;
     running = true;
     timer = setInterval(() => safeStep(), 500 / session.speed);
     setControlState();
@@ -352,10 +357,10 @@ export function mountSimulation(root) {
     $('#simFinancialReference').textContent=reference===null?'계산 불가':fmt(reference,2)+'원';
     $('#simFinancialInfluence').previousElementSibling.textContent=cycle?'거시경제 반영도':'재무정보 반영도';
     $('#simFinancialInfluence').textContent=fmt(cycle?market.config.macro.influence:metrics.priceInfluence)+'%';
-    $('#simFinancialNote').textContent={income:'연간 입력값은 실행 중 고정됩니다. 회사의 이익은 참여자 현금에 자동 지급되지 않습니다.',balance:'자본 = 자산 − 부채. 부채비율은 부채 ÷ 자본, 자기자본비율은 자본 ÷ 자산입니다.',valuation:'주식 수는 참여자의 초기 보유량 합계입니다. 참조 주가는 입력한 PER·이익을 사용한 모형의 가정입니다.',cycle:'현재 경제지표와 회사 민감도를 반영한 연간 추정값입니다. 입력 실적과 참여자 현금은 바꾸지 않습니다.'}[session.financialView] || '';
+    $('#simFinancialNote').textContent={income:'연간 입력값은 실행 중 고정됩니다. 회사의 이익은 참여자 현금에 자동 지급되지 않습니다.',balance:'자본 = 자산 − 부채. 부채비율은 부채 ÷ 자본, 자기자본비율은 자본 ÷ 자산입니다.',valuation:'발행주식 수는 참여자 수·재산과 독립입니다. 참조 주가는 입력한 PER·이익을 사용한 모형의 가정입니다.',cycle:'현재 경제지표와 회사 민감도를 반영한 연간 추정값입니다. 입력 실적과 참여자 현금은 바꾸지 않습니다.'}[session.financialView] || '';
     paintNews();
     const m=market.config.macro;
-    $('#simMacroPhase').textContent=(m.influence===0?'영향 제외':scenario.phase)+' · 고정 연간 시나리오';
+    $('#simMacroPhase').textContent=(m.influence===0?'영향 제외':scenario.phase)+' · 현재 연간 시나리오';
     const macroItems=[['gdpGrowth','실질 GDP 성장률',fmt(m.gdpGrowth,1)+'%'],['inflation','소비자물가 상승률',fmt(m.inflation,1)+'%'],['policyRate','기준금리',fmt(m.policyRate,1)+'%'],['cyclicality','기업 유형',COMPANY_CYCLE_TYPES[market.config.companyProfile.cyclicality].label],['revenueChange','추정 매출 변화',signed(metrics.revenueChange)+'%'],['profitDelta','추정 순이익 변화',signed(scenario.profitDelta)+'억원']];
     $('#simMacroMetrics').innerHTML=macroItems.map(([key,label,value])=>`<div data-macro-metric="${key}"><span>${label}</span><strong>${esc(value)}</strong></div>`).join('');
     $('#simMacroRevenue').textContent=fmt(projected.revenue/100000000,2)+'억원';
@@ -394,17 +399,17 @@ export function mountSimulation(root) {
   function paintControls(){
     const control=session.exchange.controls,state=control.snapshot(),config=control.config;
     const remaining=ticks=>`${String(Math.floor(ticks*10/60)).padStart(2,'0')}:${String(ticks*10%60).padStart(2,'0')}`;
-    const phaseLabel={normal:'정상 거래',sidecar:'사이드카',halted:`거래 중단 ${state.breakerStage}단계`,recovering:'참여 회복'}[state.phase];
+    const phaseLabel=session.exchange.sessionClosed?'장 마감':{closed:'당일 종료',auction:'재개 단일가',normal:'정상 거래',sidecar:'사이드카',halted:`거래 중단 ${state.breakerStage}단계`,recovering:'참여 회복'}[state.phase];
     controlBadge.textContent=phaseLabel+(state.remainingTicks?' '+remaining(state.remainingTicks):'');
     controlBadge.dataset.phase=state.phase;controlBadge.title='체결·분석 → 시장 안정';
     const averageRisk=session.exchange.accounts.reduce((sum,account)=>sum+account.traits.risk,0)/session.exchange.accounts.length;
-    const metrics=[['시장 지수',fmt(state.index,2),`${signed(state.change)}% · 시작 100`],['판단 참여',fmt(state.participation*100,1)+'%','기존 행동 확률에 곱함'],['평균 주문 열기',fmt(averageRisk*state.participation,1),'위험감수 × 참여 비율']];
+    const metrics=[['시장 지수',fmt(state.index,2),`${signed(state.change)}% · 전일 대비`],['판단 참여',fmt(state.participation*100,1)+'%','개인 거래 · 사이드카 중 유지'],['평균 주문 열기',fmt(averageRisk*state.participation,1),'위험감수 × 참여 비율']];
     $('#simControlMetrics').innerHTML=metrics.map(([label,value,note])=>`<div><span>${label}</span><strong>${value}</strong><small>${note}</small></div>`).join('');
-    const sidecarText=!config.sidecar.enabled?'사용 안 함':state.sidecar?`발동 중 · ${remaining(state.sidecarRemaining)} 남음 · 참여 ${config.sidecar.participation}%`:state.cooldownRemaining?`재발동 대기 ${remaining(state.cooldownRemaining)}`:`최근 ${config.sidecar.windowMinutes}분 ±${config.sidecar.threshold}% · 현재 ${signed(state.windowChange)}%`;
-    const breakerText=!config.circuitBreaker.enabled?'사용 안 함':state.halted?`${state.breakerStage}단계 · ${remaining(state.remainingTicks)} 후 재개`:state.breakerStage>=3?'3단계 발동 완료 · 추가 자동 중단 없음':`다음 ${state.breakerStage+1}단계 −${config.circuitBreaker.thresholds[state.breakerStage]}% · ${config.circuitBreaker.durationMinutes}분 중단`;
+    const sidecarText=!config.sidecar.enabled?'사용 안 함':state.sidecar?`프로그램 ${state.programSide==='buy'?'매수':'매도'} 제한 · ${remaining(state.sidecarRemaining)}`:state.cooldownRemaining?'오늘 발동 완료':`전일 대비 ±${config.sidecar.threshold}% · ${config.sidecar.windowMinutes}분 유지`;
+    const breakerText=!config.circuitBreaker.enabled?'사용 안 함':state.closed?'3단계 · 당일 종료':state.auction?'재개 단일가 주문 수집':state.halted?`${state.breakerStage}단계 · ${remaining(state.remainingTicks)} 후 10분 단일가`:`다음 ${state.breakerStage+1}단계 −${config.circuitBreaker.thresholds[state.breakerStage]}% · ${config.circuitBreaker.durationMinutes}분 중단`;
     $('#simControlSummary').innerHTML=`<div><strong>사이드카</strong><span>${sidecarText}</span></div><div><strong>서킷브레이커</strong><span>${breakerText}</span></div>`;
-    $('[data-test-control="sidecar"]').disabled=session.dirty || state.halted || state.sidecar || state.cooldownRemaining>0 || !config.sidecar.enabled;
-    $('[data-test-control="breaker"]').disabled=session.dirty || state.halted || state.breakerStage>=3 || !config.circuitBreaker.enabled;
+    $('[data-test-control="sidecar"]').disabled=session.dirty || session.exchange.sessionClosed || state.halted || state.sidecar || state.cooldownRemaining>0 || !config.sidecar.enabled;
+    $('[data-test-control="breaker"]').disabled=session.dirty || session.exchange.sessionClosed || state.halted || state.breakerStage>=3 || !config.circuitBreaker.enabled;
     const events=[...state.events].reverse(),size=2;
     session.controlEventPage=Math.max(0,Math.min(session.controlEventPage || 0,Math.ceil(events.length/size)-1));
     $('#simControlEventCount').textContent=`최근 ${events.length}건`;
@@ -442,7 +447,7 @@ export function mountSimulation(root) {
     $('#simPrice').className = directionClass(change);
     $('#simChange').textContent = `${signed(m.price-m.config.initialPrice,0)}원 (${signed(change*100)}%)`;
     $('#simChange').className = directionClass(change);
-    $('#simClock').textContent = marketTime(m.tick);
+    $('#simClock').textContent = m.tick===session.exchange.day*2340&&session.exchange.day?`D+${session.exchange.day} 09:00:00`:marketTime(m.tick);
     $('#simReturn').textContent = signed(change*100)+'%';
     $('#simReturn').className = directionClass(change);
     $('#simVolume').textContent = fmt(m.totalVolume)+'주';
@@ -475,9 +480,9 @@ export function mountSimulation(root) {
     $('#simBids').innerHTML = bookRows(m.orderBook.bids,'bid');
     $('#simBookPrice').textContent = fmt(m.price)+'원';
     $('#simBookPrice').className = 'sim-book-mid '+directionClass(change);
-    $('#simBookSummary').textContent = session.exchange.controls.snapshot().halted?'서킷브레이커 · 거래 중단':`이번 틱 체결 ${fmt(m.last.volume)}주`;
+    $('#simBookSummary').textContent = session.exchange.sessionClosed?'장 마감':m.viUntil>m.tick?'단일가 주문 수집':session.exchange.controls.snapshot().halted?'서킷브레이커 · 거래 중단':`이번 틱 체결 ${fmt(m.last.volume)}주`;
     $('#simTradeCount').textContent = `누적 ${fmt(m.totalTrades)}건`;
-    const names = {...Object.fromEntries(m.agents.map(a => [a.id,a.traits.name])),player:'나'};
+    const names = {...Object.fromEntries([...m.agents,...m.background].map(a => [a.id,a.traits.name])),player:'나'};
     session.tradePage=Math.min(session.tradePage,Math.max(0,Math.ceil(m.trades.length/session.tradePageSize)-1));
     const tradeStart=session.tradePage*session.tradePageSize;
     $('#simTrades').innerHTML = m.trades.length ? m.trades.slice(tradeStart,tradeStart+session.tradePageSize).map(trade => `<div class="sim-trade"><time>${marketTime(trade.tick)}</time><div><strong>${fmt(trade.price)}원</strong><span>${fmt(trade.quantity)}주</span></div><small><span>${esc(names[trade.buyer])} 매수</span><span>${esc(names[trade.seller])} 매도</span></small></div>`).join('') : '<div class="sim-empty-trades">아직 체결된 거래가 없습니다.<br>매수·매도 호가가 만나면 여기에 표시됩니다.</div>';
@@ -788,7 +793,8 @@ export function mountSimulation(root) {
   session.issues ||= {view:'report',section:'content',drafts:{},participantPage:0};
   issues=new IssuePanel(root,{state:session.issues,getContext:()=>({exchange:session.exchange,market:session.market,dirty:session.dirty,running,eventId:session.market.publicNews()[session.newsPage]?.id}),advance:()=>safeStep(1),onNotice:notice,onLayout:scheduleLayout,onOpen:()=>{session.financialView='news';paintFinancials();issues.paint();showView('company');},onSelected:id=>{session.newsPage=session.market.publicNews().findIndex(event=>event.id===id);paint();}});
   participantSheet=new ParticipantSheet($('#simParticipants'),$('#simParticipantPager'),{getDraft:()=>session.draft,onChange:patch=>{session.draft={...readDraft(),...patch};session.dirty=true;pause();$('#simConfigError').textContent='';},onLayout:scheduleLayout,onHelp:openGuide});
+  const destroyExperiments=mountExperiments(root,{getExchange:()=>session.exchange,isDirty:()=>session.dirty,pause,notice,onChange:()=>{paint();setControlState();},replaceExchange:exchange=>{session.exchange=exchange;session.securityId='primary';session.draft={...clone(exchange.config),population:clone(exchange.config.population || defaultPopulation())};session.dirty=false;session.newsPage=0;session.tradePage=0;chart.reset();paintDraft();paint();setControlState();try{localStorage.setItem(STORAGE_KEY,JSON.stringify(exchange.config));}catch{}}});
   paintDraft(); paint(); renderRules(); setControlState(); showView(session.view);
   if (session.dirty) notice('적용하지 않은 설정이 있습니다. 설정을 적용하거나 변경 취소를 눌러주세요.');
-  return () => {disposed = true; pause(); abort.abort(); trading.destroy();issues.destroy();participantSheet.destroy();chart.destroy(); layoutObserver.disconnect();cancelAnimationFrame(layoutFrame);};
+  return () => {disposed = true; pause(); destroyExperiments(); abort.abort(); trading.destroy();issues.destroy();participantSheet.destroy();chart.destroy(); layoutObserver.disconnect();cancelAnimationFrame(layoutFrame);};
 }

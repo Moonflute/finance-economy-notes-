@@ -51,7 +51,7 @@ def build():
             raise ValueError(f'Unknown source: {concept["id"]}')
     dist = ROOT / 'dist'
     dist.mkdir(exist_ok=True)
-    for name in ['index.html', 'app.js', 'styles.css', 'labs.js', 'markets.js', 'simulation.js', 'simulation-engine.js', 'simulation-exchange.js', 'simulation-controls.js', 'simulation-trading.js', 'simulation-issues.js', 'simulation-roster.js', 'simulation-participants.js', 'simulation-help.js', 'simulation-chart.js', 'simulation.css', 'market-theme.css', 'manifest.webmanifest', '.nojekyll']:
+    for name in ['index.html', 'app.js', 'styles.css', 'labs.js', 'markets.js', 'simulation.js', 'simulation-engine.js', 'simulation-exchange.js', 'simulation-liquidity.js', 'simulation-experiments.js', 'simulation-controls.js', 'simulation-trading.js', 'simulation-issues.js', 'simulation-roster.js', 'simulation-participants.js', 'simulation-help.js', 'simulation-chart.js', 'simulation.css', 'market-theme.css', 'manifest.webmanifest', '.nojekyll']:
         shutil.copy2(ROOT / 'site' / name, dist / name)
     shutil.copytree(ROOT / 'site/icons', dist / 'icons', dirs_exist_ok=True)
     parts, chapters = [], []
