@@ -87,8 +87,8 @@ def build():
     print_document = (
         '<!doctype html><html lang="ko"><head><meta charset="utf-8">'
         '<meta name="viewport" content="width=device-width,initial-scale=1">'
-        '<title>Fieldbook · 금융·경제 노트</title><link rel="stylesheet" href="styles.css"></head>'
-        '<body class="print-document"><header class="print-cover"><p>FIELDBOOK · '
+        '<title>Money · 금융·경제 노트</title><link rel="stylesheet" href="styles.css"></head>'
+        '<body class="print-document"><header class="print-cover"><p>Money · '
         + esc(data['edition']) + '</p><h1>금융·경제 노트</h1><p>경제 · 금융 · 재무설계 · 법률</p>'
         '<p>법·세제의 적용 대상과 한도·세율·기한은 해당 시점의 법령과 공식 안내를 기준으로 합니다.</p>'
         '<button onclick="window.print()">인쇄 / PDF 저장</button></header>'

@@ -1,7 +1,7 @@
 {
   "name": "Money",
   "short_name": "Money",
-  "description": "A practical fieldbook for economics, finance, planning and ethics.",
+  "description": "경제·금융·재무설계·법률의 개념과 원리를 설명하는 금융·경제 노트.",
   "lang": "ko",
   "start_url": "./",
   "scope": "./",
