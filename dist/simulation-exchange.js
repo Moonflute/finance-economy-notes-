@@ -8,7 +8,7 @@ export const DEFAULT_ADDITIONAL_COMPANIES=[
   {id:'daily',ticker:'DLY',company:'데일리생활',initialPrice:8000,financials:{...DEFAULT_FINANCIALS,revenue:8,operatingProfit:1.1,netIncome:0.7,assets:5,liabilities:1.5},companyProfile:normalizeCompanyProfile({cyclicality:'defensive'}),companyNews:[{id:'dividend-plan',title:'안정적 공급 계약',announceMinute:15,leadMinutes:0,durationMinutes:10,expectedImpact:0,actualImpact:4}]},
   {id:'prime',ticker:'PRM',company:'프라임산업',initialPrice:20000,financials:{...DEFAULT_FINANCIALS,revenue:16,operatingProfit:1.5,netIncome:1.1,assets:12,liabilities:5},companyProfile:normalizeCompanyProfile({cyclicality:'cyclical'}),companyNews:[{id:'factory',title:'신규 공장 수주 발표',announceMinute:8,leadMinutes:3,durationMinutes:12,expectedImpact:7,actualImpact:10}]}
 ];
-export const DEFAULT_EXCHANGE_CONFIG={...DEFAULT_CONFIG,additionalCompanies:DEFAULT_ADDITIONAL_COMPANIES,player:{wealth:10000,leverage:1},marketControls:DEFAULT_MARKET_CONTROLS};
+export const DEFAULT_EXCHANGE_CONFIG={...DEFAULT_CONFIG,additionalCompanies:DEFAULT_ADDITIONAL_COMPANIES,player:{wealth:10000,leverage:1,unlimited:false},marketControls:DEFAULT_MARKET_CONTROLS};
 
 export function normalizeExchangeConfig(raw) {
   const base=normalizeConfig(raw),additional=raw.additionalCompanies ?? DEFAULT_ADDITIONAL_COMPANIES;
@@ -21,12 +21,16 @@ export function normalizeExchangeConfig(raw) {
     const value=normalizeConfig({...base,...company,seed:base.seed,participants:base.participants,population:undefined});
     return {id,ticker,company:value.company,initialPrice:value.initialPrice,financials:value.financials,companyProfile:value.companyProfile,companyNews:value.companyNews};
   });
-  const wealth=Number(raw.player?.wealth ?? 10000),leverage=Number(raw.player?.leverage ?? 1);
-  if(!Number.isFinite(wealth) || wealth<100 || wealth>10000000 || !Number.isSafeInteger(wealth*10000))throw new Error('내 초기 자금은 100~10,000,000만원 범위로 입력하세요.');
+  const unlimited=raw.player?.unlimited ?? false;
+  if(typeof unlimited!=='boolean')throw new Error('내 자금 설정 방식을 선택하세요.');
+  const enteredWealth=Number(raw.player?.wealth ?? 10000),leverage=Number(raw.player?.leverage ?? 1);
+  const validWealth=Number.isFinite(enteredWealth) && enteredWealth>=100 && Number.isSafeInteger(enteredWealth*10000);
+  if(!unlimited && !validWealth)throw new Error('내 초기 자금은 100만원 이상으로 입력하세요. 매우 큰 자금은 ‘무제한’을 선택하세요.');
+  const wealth=validWealth?enteredWealth:10000;
   if(!Number.isInteger(leverage) || leverage<1 || leverage>3)throw new Error('내 레버리지는 1~3배 중에서 선택하세요.');
   const participantPlan=!base.population && raw.participantPlan?normalizeRosterPlan(raw.participantPlan):null;
   if(participantPlan && participantPlan.count!==base.participants.length)throw new Error('참여자 수를 변경한 뒤 표를 생성하세요.');
-  return {...base,additionalCompanies,player:{wealth,leverage},marketControls:normalizeMarketControls(raw.marketControls),...(participantPlan?{participantPlan}:{})};
+  return {...base,additionalCompanies,player:{wealth,leverage,unlimited},marketControls:normalizeMarketControls(raw.marketControls),...(participantPlan?{participantPlan}:{})};
 }
 
 // Each security has its own book and history. Cash, credit and collateral are
@@ -50,14 +54,16 @@ export class SecuritiesSimulation {
       const initialEquity=traits.wealth*10000;
       return {id:`p${index+1}`,traits,initialEquity,cash:initialEquity-this.markets.reduce((sum,market)=>sum+positions[market.assetId].shares*market.price,0),positions};
     });
-    const initialEquity=this.config.player.wealth*10000;
-    this.player={id:'player',manual:true,initialEquity,cash:initialEquity,leverage:this.config.player.leverage,positions:Object.fromEntries(this.markets.map(market=>[market.assetId,{shares:0,averageCost:0,realizedPnL:0}]))};
+    // Unlimited buying power uses a finite cash-flow ledger, so settlement and
+    // profit never subtract Infinity from Infinity or lose cash conservation.
+    const initialEquity=this.config.player.unlimited?0:this.config.player.wealth*10000;
+    this.player={id:'player',manual:true,unlimited:this.config.player.unlimited,initialEquity,cash:initialEquity,leverage:this.config.player.leverage,positions:Object.fromEntries(this.markets.map(market=>[market.assetId,{shares:0,averageCost:0,realizedPnL:0}]))};
     this.byAccountId=new Map([...this.accounts,this.player].map(account=>[account.id,account]));
     for(const market of this.markets){
       for(const agent of market.agents)this.bindAgent(market,agent,this.byAccountId.get(agent.id));
       const traits={name:'나',risk:100,allocation:0,onRise:'hold',onFall:'hold'};
       Object.defineProperty(traits,'maxLeverage',{get:()=>this.player.leverage});
-      market.manualAgent={id:'player',manual:true,traits,initialEquity,lastAction:'직접 주문 대기',lastReason:'',lastFilled:0,marginCalls:0};
+      market.manualAgent={id:'player',manual:true,unlimited:this.player.unlimited,traits,initialEquity,lastAction:'직접 주문 대기',lastReason:'',lastFilled:0,marginCalls:0};
       this.bindAgent(market,market.manualAgent,this.player);
       market.equity=(agent,price=market.price)=>this.equity(this.byAccountId.get(agent.id),{assetId:market.assetId,price});
       market.grossExposure=agent=>this.gross(this.byAccountId.get(agent.id));
@@ -94,7 +100,9 @@ export class SecuritiesSimulation {
     return {cash,gross,short};
   }
   capacity(market,agent,side,price,order={}){
-    const account=this.byAccountId.get(agent.id),equity=Math.max(0,this.equity(account,{assetId:market.assetId,price}));
+    const account=this.byAccountId.get(agent.id);
+    if(account.unlimited)return side==='sell' && !order.allowShort?Math.max(0,agent.shares):Infinity;
+    const equity=Math.max(0,this.equity(account,{assetId:market.assetId,price}));
     const leverage=agent.traits.maxLeverage,shares=agent.shares;
     const reserved=agent.manual?this.reservations(order.manualRequest || order):{cash:0,gross:0,short:0};
     const otherGross=this.markets.reduce((sum,other)=>sum+(other===market?0:Math.abs(account.positions[other.assetId].shares*other.price)),0);
@@ -149,12 +157,13 @@ export class SecuritiesSimulation {
   }
   playerSnapshot(){
     const equity=this.equity(),gross=this.gross();
-    return {equity,cash:Math.max(0,this.player.cash),debt:Math.max(0,-this.player.cash),profit:equity-this.player.initialEquity,returnRate:(equity/this.player.initialEquity-1)*100,exposure:equity>0?gross/equity:0,leverage:this.player.leverage,realizedPnL:Object.values(this.player.positions).reduce((sum,position)=>sum+position.realizedPnL,0),marginCalls:this.markets.reduce((sum,market)=>sum+market.manualAgent.marginCalls,0),positions:this.markets.map(market=>({id:market.assetId,company:market.config.company,price:market.price,...this.player.positions[market.assetId],unrealizedPnL:this.player.positions[market.assetId].shares*(market.price-this.player.positions[market.assetId].averageCost)}))};
+    const unlimited=this.player.unlimited;
+    return {unlimited,equity:unlimited?null:equity,cash:unlimited?null:Math.max(0,this.player.cash),debt:unlimited?0:Math.max(0,-this.player.cash),profit:equity-this.player.initialEquity,returnRate:unlimited?null:(equity/this.player.initialEquity-1)*100,exposure:unlimited?null:equity>0?gross/equity:0,leverage:this.player.leverage,realizedPnL:Object.values(this.player.positions).reduce((sum,position)=>sum+position.realizedPnL,0),marginCalls:this.markets.reduce((sum,market)=>sum+market.manualAgent.marginCalls,0),positions:this.markets.map(market=>({id:market.assetId,company:market.config.company,price:market.price,...this.player.positions[market.assetId],unrealizedPnL:this.player.positions[market.assetId].shares*(market.price-this.player.positions[market.assetId].averageCost)}))};
   }
   step(){
     const control=this.controls.snapshot();
     const equity=this.equity();
-    if(!control.halted && this.gross()>0 && (equity<=0 || this.gross()>equity*this.player.leverage*1.12))for(const market of this.markets)market.cancelManualOrder('담보 부족으로 취소');
+    if(!this.player.unlimited && !control.halted && this.gross()>0 && (equity<=0 || this.gross()>equity*this.player.leverage*1.12))for(const market of this.markets)market.cancelManualOrder('담보 부족으로 취소');
     for(const market of this.markets)market.step({halted:control.halted,participationFactor:control.participation,controlPhase:control.phase});
     const index=100*this.markets.reduce((sum,market)=>sum+market.price/market.config.initialPrice,0)/this.markets.length;
     this.controls.observe(this.tick,index,control);this.syncControlState();

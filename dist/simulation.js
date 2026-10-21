@@ -144,8 +144,8 @@ export function mountSimulation(root) {
   $('#simNotice').before(noticeRow);noticeRow.append($('#simNotice'));
   const controlBadge=document.createElement('button');controlBadge.type='button';controlBadge.id='simControlBadge';controlBadge.className='sim-control-badge';controlBadge.setAttribute('aria-label','시장 안정 상태 보기');noticeRow.append(controlBadge);
   $('.sim-orderbook>p').textContent='자동 주문은 다음 틱에 다시 제출합니다.';
-  const playerField=document.createElement('label');playerField.className='sim-field';playerField.htmlFor='simPlayerWealth';
-  playerField.innerHTML=`<span>내 초기 자금 <small>만원 · 전 종목 공통</small></span><input id="simPlayerWealth" type="number" min="100" max="10000000" step="100" value="${session.draft.player.wealth}" required>`;
+  const playerField=document.createElement('div');playerField.className='sim-field sim-player-funds-field';
+  playerField.innerHTML=`<span><label for="simPlayerWealth">내 초기 자금</label><small>만원 · 전 종목 공통</small></span><div class="sim-player-funds-inputs"><select id="simPlayerFundsMode" aria-label="내 자금 설정 방식"><option value="finite">금액 입력</option><option value="unlimited">무제한 ∞</option></select><input id="simPlayerWealth" type="number" min="100" step="any" value="${session.draft.player.wealth}" required></div>`;
   $('.sim-market-fields').append(playerField);
   const notes = $('.sim-model-notes');
   notes.innerHTML = `<h2>속성·작동 안내</h2><div class="sim-guide-selectors"><label for="simGuideSection"><span>분류</span><select id="simGuideSection">${HELP_SECTIONS.map(section=>`<option value="${section.key}">${esc(section.label)}</option>`).join('')}</select></label><label for="simGuideTopic"><span>항목</span><select id="simGuideTopic"></select></label></div><article id="simGuideContent" class="sim-guide-content" aria-live="polite"></article>`;
@@ -491,6 +491,13 @@ export function mountSimulation(root) {
     if(m.last.halted)$('#simExplanation').textContent=controlState.halted?'서킷브레이커 발동으로 모든 체결을 중단했습니다. 시간과 기업 발표는 진행하며 기존 지정가 주문은 유지합니다. 가상 시간을 진행하면 거래가 재개됩니다.':'이번 틱까지 서킷브레이커로 체결이 중단됐습니다. 현재 거래가 재개됐으며, 다음 틱부터 회복 중인 참여 비율로 주문을 처리합니다.';
     paintControls();trading?.paint();issues?.paint();chart.render();
   }
+  function syncPlayerFundsMode() {
+    const unlimited=$('#simPlayerFundsMode').value==='unlimited';
+    playerField.dataset.unlimited=String(unlimited);
+    $('#simPlayerWealth').hidden=unlimited;
+    $('#simPlayerWealth').disabled=unlimited;
+    $('#simPlayerWealth').required=!unlimited;
+  }
   function readDraft() {
     const participants = clone(session.draft.participants);
     const population = clone(session.draft.population || defaultPopulation());
@@ -509,7 +516,7 @@ export function mountSimulation(root) {
     for(const input of root.querySelectorAll('[data-market-control]')){
       const keys=input.dataset.marketControl.split('.'),target=keys.slice(0,-1).reduce((object,key)=>object[key],marketControls);target[keys.at(-1)]=input.value;
     }
-    const next={...session.draft,seed:$('#simSeed').value,macro,participants,population,marketControls,player:{...session.draft.player,wealth:$('#simPlayerWealth').value}};
+    const next={...session.draft,seed:$('#simSeed').value,macro,participants,population,marketControls,player:{...session.draft.player,wealth:$('#simPlayerWealth').value,unlimited:$('#simPlayerFundsMode').value==='unlimited'}};
     if(session.securityId==='primary')Object.assign(next,values);
     else next.additionalCompanies=next.additionalCompanies.map(company=>company.id===session.securityId?{...company,...values}:company);
     return next;
@@ -531,6 +538,8 @@ export function mountSimulation(root) {
     $('#simInitialPrice').value = draftCompany().initialPrice;
     $('#simSeed').value = session.draft.seed;
     $('#simPlayerWealth').value=session.draft.player.wealth;
+    $('#simPlayerFundsMode').value=session.draft.player.unlimited?'unlimited':'finite';
+    syncPlayerFundsMode();
     $('#simFinancialEditor').innerHTML=financialEditorMarkup();
     $('#simMacroEditor').innerHTML=macroConfigMarkup();
     $('#simNewsEditor').innerHTML=newsEditorMarkup();
@@ -586,7 +595,7 @@ export function mountSimulation(root) {
   $('#simConfig').addEventListener('input', event => {
     const input = event.target;
     if(input.closest('[data-participant-sheet]'))return;
-    if(['simDistributionSelect','simNewsEditSelect','simControlSection'].includes(input.id) || input.dataset.companyField==='cyclicality')return;
+    if(['simDistributionSelect','simNewsEditSelect','simControlSection','simPlayerFundsMode'].includes(input.id) || input.dataset.companyField==='cyclicality')return;
     if (input.hasAttribute('data-population-range')) root.querySelector(`[data-population-number="${input.dataset.populationRange}"]`).value = input.value;
     else if (input.hasAttribute('data-population-number')) root.querySelector(`[data-population-range="${input.dataset.populationNumber}"]`).value = input.value;
     else if (input.type === 'range') input.closest('label').querySelector('output').textContent = input.value+'%';
@@ -599,6 +608,7 @@ export function mountSimulation(root) {
   }, options);
   $('#simConfig').addEventListener('change', event => {
     if(event.target.closest('[data-participant-sheet]'))return;
+    if(event.target.id==='simPlayerFundsMode'){markDirty();syncPlayerFundsMode();scheduleLayout();return;}
     if(event.target.id==='simControlSection'){session.draft=readDraft();session.controlEditSection=event.target.value;$('#simControlEditor').innerHTML=controlEditorMarkup();scheduleLayout();return;}
     if (event.target.id==='simDistributionSelect') {selectDistribution(event.target.value);return;}
     if(event.target.id==='simNewsEditSelect'){session.draft=readDraft();session.newsEditPage=Number(event.target.value);$('#simNewsEditor').innerHTML=newsEditorMarkup();scheduleLayout();return;}

@@ -456,7 +456,7 @@ export class MarketSimulation {
     if(this.tradingHalted)throw new Error('거래 중단 중에는 새 주문을 접수하지 않습니다.');
     if(this.manualOrder && ['queued','open','partial'].includes(this.manualOrder.status))throw new Error('이 종목의 대기 주문을 먼저 취소하세요.');
     const quantity=Number(raw.quantity),type=raw.type,action=raw.action;
-    if(!Number.isInteger(quantity) || quantity<1 || quantity>10000000)throw new Error('주문 수량은 1~10,000,000주 사이의 정수로 입력하세요.');
+    if(!Number.isSafeInteger(quantity) || quantity<1)throw new Error('주문 수량은 정확히 계산할 수 있는 1주 이상의 정수로 입력하세요.');
     if(!['market','limit'].includes(type) || !['buy','sell','short'].includes(action))throw new Error('주문 종류와 매매 방향을 선택하세요.');
     const limit=type==='limit'?Number(raw.limit):this.price;
     if(!Number.isInteger(limit) || limit<1 || limit>1000000000)throw new Error('지정가는 1~1,000,000,000원 사이의 정수로 입력하세요.');
@@ -614,6 +614,7 @@ export class MarketSimulation {
 
   decision(agent, context) {
     if(context.halted)return {targetShares:agent.shares,label:'거래 중단',reason:'서킷브레이커 · 거래 재개까지 주문·반대매매 체결 중단',signal:0};
+    if(agent.manual && agent.unlimited)return {targetShares:agent.shares,label:'직접 주문 대기',reason:'자금 무제한 · 사용자가 제출한 주문만 처리합니다.',signal:0};
     const equity = this.equity(agent);
     const exposure = equity > 0 ? agent.shares * this.price / equity : 0;
     const risk = agent.traits.risk / 100;
