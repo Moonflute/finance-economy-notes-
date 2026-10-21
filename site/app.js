@@ -62,7 +62,7 @@ function navigate() {
   shell();
   ({home, library, bookmarks:library, concept, lab:labPage, markets:marketPage, simulation:simulationPage})[route]();
   const title = route === 'concept' && byId.has(sub) ? byId.get(sub).title : {home:'금융·경제 노트', library:'개념 사전', bookmarks:'북마크', lab:'실험실', markets:'시장 데이터', simulation:'증권시장 시뮬레이션', concept:'개념'}[route];
-  document.title = title + ' · Fieldbook';
+  document.title = title + ' · Money';
   window.scrollTo({top:0, behavior:'instant'});
   $('#main').focus({preventScroll:true});
   closeMenu();
