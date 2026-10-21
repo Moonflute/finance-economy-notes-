@@ -1,0 +1,91 @@
+// Focused checks for causal volume signals, probabilistic responses and matching.
+const fs=require('node:fs'),assert=require('node:assert/strict');
+(async()=>{
+  const url=source=>'data:text/javascript;base64,'+Buffer.from(source).toString('base64'),copy=value=>JSON.parse(JSON.stringify(value));
+  const engineUrl=url(fs.readFileSync('site/simulation-engine.js','utf8'));
+  const engine=await import(engineUrl),{MarketSimulation,DEFAULT_CONFIG,calculateVolumeSignal,normalizeConfig,PARTICIPANT_ATTRIBUTES}=engine;
+  const rosterUrl=url(fs.readFileSync('site/simulation-roster.js','utf8').replace("'./simulation-engine.js'",JSON.stringify(engineUrl)));
+  const controlsUrl=url(fs.readFileSync('site/simulation-controls.js','utf8'));
+  const exchangeUrl=url(fs.readFileSync('site/simulation-exchange.js','utf8').replace("'./simulation-engine.js'",JSON.stringify(engineUrl)).replace("'./simulation-controls.js'",JSON.stringify(controlsUrl)).replace("'./simulation-roster.js'",JSON.stringify(rosterUrl)));
+  const {SecuritiesSimulation,DEFAULT_EXCHANGE_CONFIG}=await import(exchangeUrl),{defaultRosterPlan,generateRoster}=await import(rosterUrl);
+  const passed=[],check=(value,label)=>{assert(value,label);passed.push(label);};
+  const spike=calculateVolumeSignal([...Array(30).fill(100),...Array(6).fill(300)]);
+  check(spike.ready && spike.ratio===3 && spike.recentVolume===1800 && spike.baselineVolume===600 && spike.phase==='burst','disjoint completed windows compare one minute with the prior five-minute per-minute mean');
+  assert.deepEqual(calculateVolumeSignal([...Array(100).fill(999999),...Array(30).fill(100),...Array(6).fill(300)]),spike);
+  passed.push('history older than the reference window cannot contaminate the comparison');
+  check(!calculateVolumeSignal(Array(11).fill(100)).ready && calculateVolumeSignal(Array(12).fill(100)).ready,'two minutes of trading observations are required before any volume response');
+  const empty=calculateVolumeSignal([...Array(30).fill(0),...Array(6).fill(100)]);
+  check(!empty.ready && empty.ratio===null && empty.phase==='noBaseline','a zero baseline never produces an infinite volume spike');
+  const dry=calculateVolumeSignal([...Array(30).fill(100),...Array(6).fill(10)]);
+  check(dry.ready && dry.ratio===0.1 && dry.phase==='dry','quiet and zero-volume minutes remain meaningful when a positive baseline exists');
+  const config=copy(DEFAULT_CONFIG);config.companyNews=[];
+  config.participants=config.participants.map(person=>({...person,wealth:10000,risk:70,allocation:50,maxLeverage:3,onRise:'hold',onFall:'hold',newsStyle:'ignore',volumeStyle:'follow',volumeProbability:100,volumeSensitivity:100,volumeThreshold:2,emotionStyle:'ignore'}));
+  const market=new MarketSimulation(config),agent=market.agents[0];
+  const context={momentum:0.01,sentiment:0,tick:37,price:market.price,volumeSignal:spike};
+  const up=market.decision(agent,context),down=market.decision(agent,{...context,momentum:-0.01});
+  check(up.source==='volume' && up.targetShares>agent.shares && down.targetShares<agent.shares && up.orderScale>1,'volume followers buy rising spikes, sell falling spikes and submit larger fractions');
+  agent.traits.volumeStyle='contrarian';
+  check(market.decision(agent,context).targetShares<agent.shares && market.decision(agent,{...context,momentum:-0.01}).targetShares>agent.shares,'contrarians act against the direction of a price-and-volume spike');
+  agent.traits.volumeStyle='reduce';const reduced=market.decision(agent,context);
+  agent.shares=-5000;agent.cash=150000000;const covered=market.decision(agent,context);
+  check(reduced.targetShares>=0 && reduced.targetShares<5000 && covered.targetShares<0 && covered.targetShares>-5000,'volume reduction trims long and short positions without crossing through zero');
+  agent.shares=5000;agent.cash=50000000;agent.traits.volumeStyle='cautious';
+  const waiting=market.decision(agent,{...context,volumeSignal:dry});
+  check(waiting.source==='volume' && waiting.targetShares===agent.shares && waiting.label==='거래위축 관망','liquidity-averse participants hold when volume falls below their inverse threshold');
+  agent.traits.volumeStyle='follow';agent.traits.volumeProbability=80;
+  market.random=()=>0.799999;check(market.decision(agent,context).source==='volume','an 80% volume response accepts a draw below 0.8');
+  market.random=()=>0.8;const missed=market.decision(agent,context);
+  check(missed.source!=='volume' && missed.volume.accepted===false && missed.targetShares===agent.shares,'a draw at 0.8 rejects the volume response and falls back to the existing price rule');
+  const frequency=new MarketSimulation(config);frequency.agents[0].traits.volumeProbability=80;
+  let selected=0;for(let i=0;i<1000;i++)if(frequency.volumeOpinion(frequency.agents[0],context).accepted)selected++;
+  check(selected>=760 && selected<=840,'seeded repeated volume trials remain close to the configured 80%');
+  const quiet=new MarketSimulation(config),quietAgent=quiet.agents[0],seedBefore=quiet.randomState;
+  quietAgent.traits.volumeStyle='ignore';assert.equal(quiet.volumeOpinion(quietAgent,context),null);
+  quietAgent.traits.volumeStyle='follow';quietAgent.traits.volumeSensitivity=0;assert.equal(quiet.volumeOpinion(quietAgent,context),null);
+  quietAgent.traits.volumeSensitivity=100;quietAgent.traits.volumeThreshold=3.5;assert.equal(quiet.volumeOpinion(quietAgent,context),null);
+  quietAgent.traits.volumeThreshold=2;assert.equal(quiet.volumeOpinion(quietAgent,{...context,momentum:0}),null);
+  assert.equal(quiet.volumeOpinion(quietAgent,{...context,volumeSignal:empty}),null);
+  check(quiet.randomState===seedBefore,'ignore, zero strength, higher thresholds, flat direction and missing baselines consume no volume draw');
+  const halted=quiet.decision(quietAgent,{...context,halted:true});
+  const cooling=quiet.decision(quietAgent,{...context,participationFactor:0});
+  quietAgent.shares=50000;quietAgent.cash=-450000000;const forced=quiet.decision(quietAgent,context);
+  check(halted.label==='거래 중단' && cooling.label==='안정 대기' && forced.forced && !forced.volume,'halts, stability participation and mandatory collateral reduction take precedence');
+  const newsConfig=copy(config);newsConfig.participants[0].newsStyle='confirm';newsConfig.participants[0].newsProbability=100;newsConfig.participants[0].newsDelay=0;
+  newsConfig.companyNews=[{id:'news',title:'실적 발표',announceMinute:1,leadMinutes:0,durationMinutes:10,expectedImpact:0,actualImpact:10}];
+  const news=new MarketSimulation(newsConfig);
+  check(news.decision(news.agents[0],{...context,tick:6}).source==='news','accepted company news retains priority over volume-driven targets');
+  const paused=new MarketSimulation(config);paused.volumeHistory=Array(12).fill(100);const prior=copy(paused.volumeHistory);paused.step({halted:true});
+  assert.deepEqual(paused.volumeHistory,prior);check(paused.last.volume===0,'circuit-breaker pauses do not create artificial low-volume observations');
+  const legacy=copy(DEFAULT_CONFIG);legacy.participants.forEach(person=>{for(const key of ['volumeStyle','volumeProbability','volumeSensitivity','volumeThreshold'])delete person[key];});
+  const normalized=normalizeConfig(legacy);
+  check(normalized.participants.every(person=>person.volumeStyle==='follow' && person.volumeProbability===70 && person.volumeSensitivity===100 && person.volumeThreshold===2),'existing individual settings receive usable volume defaults');
+  for(const [key,value] of [['volumeStyle','invalid'],['volumeProbability',101],['volumeSensitivity',-1],['volumeThreshold',1],['volumeThreshold',6]]){
+    const invalid=copy(config);invalid.participants[0][key]=value;assert.throws(()=>normalizeConfig(invalid));
+  }
+  check(PARTICIPANT_ATTRIBUTES.filter(attribute=>attribute.key.startsWith('volume')).length===4,'all four volume traits use the shared editable and allocatable attribute metadata');
+  const tradeConfig=copy(DEFAULT_EXCHANGE_CONFIG);tradeConfig.companyNews=[];tradeConfig.additionalCompanies=[];
+  tradeConfig.marketControls.sidecar.enabled=false;tradeConfig.marketControls.circuitBreaker.enabled=false;
+  tradeConfig.participants=Array.from({length:3},(_,i)=>({...config.participants[i],name:`거래량 참여자 ${i+1}`,wealth:1000,allocation:60,maxLeverage:1,onRise:'sell',onFall:'sell',riseProbability:100,fallProbability:100,volumeThreshold:1.2}));
+  const direct=new SecuritiesSimulation(tradeConfig),primary=direct.market();
+  for(let i=0;i<12;i++){direct.submitOrder('primary',{action:'buy',type:'market',quantity:10});direct.step();assert.equal(primary.last.volume,10);}
+  direct.submitOrder('primary',{action:'buy',type:'market',quantity:1000});direct.step();
+  const impulse=primary.last.volume,nextSignal=primary.volumeSignal();
+  assert.equal(primary.last.volumeSignal.ratio,1);assert(impulse>=100 && nextSignal.ratio>2);
+  direct.step();
+  check(primary.last.volumeSignal.ratio===nextSignal.ratio && primary.last.decisions.some(decision=>decision.source==='volume'),'a real large player fill changes the next tick volume response without same-tick lookahead');
+  const plan=defaultRosterPlan(40),simulationConfig={...copy(DEFAULT_EXCHANGE_CONFIG),participants:generateRoster(plan,42),participantPlan:plan};
+  const actual=new SecuritiesSimulation(simulationConfig),replay=new SecuritiesSimulation(simulationConfig);
+  for(let tick=0;tick<60;tick++){
+    const before=actual.markets.map(market=>market.volumeSignal());actual.step();replay.step();
+    assert.deepEqual(actual.markets.map(market=>market.last),replay.markets.map(market=>market.last));
+    assert.equal([...actual.accounts,actual.player].reduce((sum,account)=>sum+account.cash,0),actual.initialCash);
+    actual.markets.forEach((market,index)=>{
+      assert.deepEqual(market.last.volumeSignal,before[index]);assert(market.volumeHistory.length<=36);
+      assert.equal([...market.agents,market.manualAgent].reduce((sum,agent)=>sum+agent.shares,0),market.totalShares);
+    });
+  }
+  check(actual.markets.some(market=>market.totalVolume>0) && actual.markets[0].volumeHistory!==actual.markets[1].volumeHistory,'multi-stock volume stays independent, reproducible and backed by conserved real trades');
+  fs.mkdirSync('artifacts/simulation-volume',{recursive:true});
+  fs.writeFileSync('artifacts/simulation-volume/engine-verification.json',JSON.stringify({passed:passed.length,checks:passed,sampled:{trials:1000,accepted:selected},directTrade:{volume:impulse,nextRatio:nextSignal.ratio}},null,2));
+  console.log(`${passed.length} volume checks passed; 80% selected ${selected}/1000; real impulse ${impulse} shares`);
+})().catch(error=>{console.error(error.message);process.exitCode=1;});

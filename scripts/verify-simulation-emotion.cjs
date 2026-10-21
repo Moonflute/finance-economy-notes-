@@ -1,0 +1,103 @@
+// Focused checks for persistent emotion, conditional actions and real settlement.
+const fs=require('node:fs'),assert=require('node:assert/strict');
+(async()=>{
+  const url=source=>'data:text/javascript;base64,'+Buffer.from(source).toString('base64'),copy=value=>JSON.parse(JSON.stringify(value));
+  const engineUrl=url(fs.readFileSync('site/simulation-engine.js','utf8'));
+  const {MarketSimulation,DEFAULT_CONFIG,normalizeConfig,advanceEmotion,emotionBand,PARTICIPANT_ATTRIBUTES}=await import(engineUrl);
+  const rosterUrl=url(fs.readFileSync('site/simulation-roster.js','utf8').replace("'./simulation-engine.js'",JSON.stringify(engineUrl)));
+  const controlsUrl=url(fs.readFileSync('site/simulation-controls.js','utf8'));
+  const exchangeUrl=url(fs.readFileSync('site/simulation-exchange.js','utf8').replace("'./simulation-engine.js'",JSON.stringify(engineUrl)).replace("'./simulation-controls.js'",JSON.stringify(controlsUrl)).replace("'./simulation-roster.js'",JSON.stringify(rosterUrl)));
+  const {SecuritiesSimulation,DEFAULT_EXCHANGE_CONFIG,normalizeExchangeConfig}=await import(exchangeUrl),{defaultRosterPlan,generateRoster}=await import(rosterUrl);
+  const passed=[],check=(value,label)=>{assert(value,label);passed.push(label);};
+  const traits={emotionInitial:50,emotionSensitivity:100,emotionRecovery:20};
+  const shock={momentum:-0.02,tickReturn:-0.01,drawdown:-0.03,crowd:50};
+  check(advanceEmotion(50,traits,shock)<50 && advanceEmotion(50,traits,{momentum:0.02,tickReturn:0.01,crowd:50})>50,'settled falls generate fear and rises generate greed');
+  check(advanceEmotion(50,traits,{...shock,volumeRatio:3})<advanceEmotion(50,traits,shock) && advanceEmotion(50,traits,{volumeRatio:10,crowd:50})===50,'large volume amplifies a price shock without creating a directional emotion by itself');
+  const loss=50-advanceEmotion(50,traits,{equityChange:-0.01,crowd:50}),gain=advanceEmotion(50,traits,{equityChange:0.01,crowd:50})-50;
+  check(loss>gain && gain>0,'actual personal losses produce a stronger reaction than equal percentage gains');
+  const calm=advanceEmotion(20,traits,{crowd:20}),quick=advanceEmotion(20,{...traits,emotionRecovery:60},{crowd:20});
+  check(calm>20 && calm<50 && quick>calm && advanceEmotion(20,{...traits,emotionRecovery:0},{crowd:20})===20,'emotion persists across ticks and higher recovery returns it toward the personal baseline faster');
+  check(advanceEmotion(60,{...traits,emotionRecovery:0},{crowd:20})<60 && advanceEmotion(40,{...traits,emotionRecovery:0},{crowd:80})>40,'the previous crowd average transmits fear and greed between participants');
+  let bounded=50;for(let i=0;i<100;i++){bounded=advanceEmotion(bounded,{...traits,emotionSensitivity:200},{momentum:i<50?-1:1,tickReturn:i<50?-1:1,crowd:50});assert(bounded>=0 && bounded<=100);}
+  check(emotionBand(0).key==='extremeFear' && emotionBand(50).key==='neutral' && emotionBand(100).key==='extremeGreed','score boundaries and the displayed fear-neutral-greed bands stay in 0–100');
+  const fixture=(score=10)=>{
+    const config=copy(DEFAULT_CONFIG);config.companyNews=[];
+    config.participants=config.participants.map(person=>({...person,wealth:1000,risk:0,allocation:60,maxLeverage:1,onRise:'hold',onFall:'hold',newsStyle:'ignore',volumeStyle:'ignore',emotionStyle:'follow',emotionInitial:score,emotionSensitivity:100,emotionRecovery:20,emotionProbability:100,panicThreshold:25,greedThreshold:75}));
+    return config;
+  };
+  const market=new MarketSimulation(fixture()),agent=market.agents[0],context={momentum:0,sentiment:0,tick:1,price:market.price};
+  const panic=market.decision(agent,context);
+  check(panic.source==='emotion' && panic.label==='패닉셀' && panic.targetShares>=0 && panic.targetShares<agent.shares && panic.orderScale>1,'fear initiates a larger panic liquidation of owned shares');
+  agent.shares=0;agent.cash=10000000;const empty=market.decision(agent,context);
+  agent.shares=-100;agent.cash=11000000;const short=market.decision(agent,context);
+  check(empty.targetShares===0 && short.targetShares===-100 && empty.emotion.kind==='wait','fear does not create new shorts or enlarge an existing short position');
+  const greedy=new MarketSimulation(fixture(90)),fomo=greedy.decision(greedy.agents[0],context);
+  check(fomo.emotion.kind==='fomo' && fomo.targetShares>greedy.agents[0].shares && fomo.targetShares<=greedy.equity(greedy.agents[0])/greedy.price,'greed buys more while retaining the leverage ceiling');
+  const opposite=new MarketSimulation(fixture(10));opposite.agents[0].traits.emotionStyle='contrarian';
+  const fearfulBuy=opposite.decision(opposite.agents[0],context);opposite.agents[0].emotion=90;
+  check(fearfulBuy.targetShares>opposite.agents[0].shares && opposite.decision(opposite.agents[0],context).targetShares<opposite.agents[0].shares,'contrarians buy fear and sell greed');
+  opposite.agents[0].emotion=10;opposite.agents[0].traits.emotionStyle='cautious';
+  check(opposite.decision(opposite.agents[0],context).targetShares===opposite.agents[0].shares,'fear-averse participants suspend voluntary trading without liquidating their position');
+  const probability=new MarketSimulation(fixture(10)),person=probability.agents[0];person.traits.emotionProbability=80;
+  probability.random=()=>0.799999;assert.equal(probability.decision(person,context).source,'emotion');
+  probability.random=()=>0.8;const missed=probability.decision(person,context);
+  check(missed.source!=='emotion' && !missed.emotion.accepted && missed.targetShares===person.shares,'an 80% emotional response accepts below 0.8 and otherwise falls back to existing rules');
+  const frequency=new MarketSimulation(fixture(10));frequency.agents[0].traits.emotionProbability=80;
+  let selected=0;for(let i=0;i<1000;i++)if(frequency.emotionOpinion(frequency.agents[0]).accepted)selected++;
+  check(selected>=760 && selected<=840,'repeated seeded emotional trials stay close to the configured 80%');
+  const disabled=new MarketSimulation(fixture()),disabledAgent=disabled.agents[0],state=disabled.randomState;
+  disabledAgent.traits.emotionStyle='ignore';assert.equal(disabled.emotionOpinion(disabledAgent),null);
+  disabledAgent.traits.emotionStyle='follow';disabledAgent.traits.emotionSensitivity=0;assert.equal(disabled.emotionOpinion(disabledAgent),null);
+  disabledAgent.traits.emotionSensitivity=100;disabledAgent.traits.emotionProbability=0;assert.equal(disabled.emotionOpinion(disabledAgent).accepted,false);
+  disabledAgent.traits.emotionProbability=100;assert.equal(disabled.emotionOpinion(disabledAgent).accepted,true);
+  disabledAgent.emotion=50;assert.equal(disabled.emotionOpinion(disabledAgent),null);
+  check(disabled.randomState===state,'ignore, zero sensitivity, 0% and 100% boundaries and neutral moods consume no emotional draw');
+  const gated=new MarketSimulation(fixture()),gatedAgent=gated.agents[0];
+  assert.equal(gated.decision(gatedAgent,{...context,halted:true}).label,'거래 중단');
+  assert.equal(gated.decision(gatedAgent,{...context,participationFactor:0}).label,'안정 대기');
+  gatedAgent.shares=5000;gatedAgent.cash=-49000000;
+  check(gated.decision(gatedAgent,context).forced,'trade halts, stability participation and mandatory margin liquidation override panic');
+  const newsConfig=fixture();newsConfig.companyNews=[{id:'good',title:'호재 발표',announceMinute:1,leadMinutes:0,durationMinutes:10,actualImpact:10,expectedImpact:0}];
+  newsConfig.participants[0].newsStyle='confirm';newsConfig.participants[0].newsProbability=100;newsConfig.participants[0].newsDelay=0;
+  const news=new MarketSimulation(newsConfig);
+  check(news.decision(news.agents[0],{...context,tick:6}).source==='emotion','an accepted panic response can override favorable company news');
+  const calmMarket=new MarketSimulation(fixture(50));calmMarket.agents.forEach(agent=>{agent.emotion=10;});calmMarket.step({halted:true});
+  check(calmMarket.agents.every(agent=>agent.emotion>10 && agent.emotion<50) && calmMarket.last.volume===0,'during a circuit-breaker pause emotion calms toward baseline without trading or new contagion');
+  const ordered=new MarketSimulation(fixture(50)),reversed=new MarketSimulation(fixture(50));
+  [ordered,reversed].forEach(market=>market.agents.forEach((agent,index)=>{agent.emotion=10+index*15;}));reversed.agents.reverse();
+  ordered.updateEmotions(context);reversed.updateEmotions(context);
+  assert.deepEqual(Object.fromEntries(ordered.agents.map(a=>[a.id,a.emotion])),Object.fromEntries(reversed.agents.map(a=>[a.id,a.emotion])));
+  passed.push('social influence uses a single previous snapshot independent of iteration order');
+  const settlementConfig=fixture(10);settlementConfig.participants=settlementConfig.participants.slice(0,2);settlementConfig.participants[1].emotionStyle='contrarian';
+  const settlement=new MarketSimulation(settlementConfig);settlement.step();
+  check(settlement.last.volume>0 && settlement.last.decisions.some(d=>d.emotion?.kind==='panic' && d.quantity>0),'panic sellers and contrarian buyers meet through the real order book');
+  const directConfig={...copy(DEFAULT_EXCHANGE_CONFIG),additionalCompanies:[],companyNews:[],participants:fixture(50).participants.slice(0,3).map(person=>({...person,onRise:'sell',onFall:'sell'}))};
+  directConfig.marketControls.sidecar.enabled=false;directConfig.marketControls.circuitBreaker.enabled=false;
+  const direct=new SecuritiesSimulation(directConfig);direct.submitOrder('primary',{action:'buy',type:'market',quantity:100});direct.step();
+  const traded=direct.market();assert(traded.last.volume>0 && traded.price!==traded.config.initialPrice);
+  assert(traded.agents.every(agent=>agent.emotion===50));direct.step();
+  check(traded.agents.some(agent=>agent.emotion!==50),'a player fill affects emotion on the next tick and cannot change same-tick decisions retroactively');
+  const old=copy(DEFAULT_CONFIG);const keys=['emotionStyle','emotionInitial','emotionSensitivity','emotionRecovery','emotionProbability','panicThreshold','greedThreshold'];
+  old.participants.forEach(person=>keys.forEach(key=>delete person[key]));
+  check(normalizeConfig(old).participants.every(person=>person.emotionInitial===50 && person.emotionStyle==='follow' && person.panicThreshold===25 && person.greedThreshold===75),'legacy participant settings gain neutral initial moods and usable response defaults');
+  for(const [key,value] of [['emotionStyle','unknown'],['emotionInitial',101],['emotionSensitivity',-1],['emotionRecovery',101],['emotionProbability',-1],['panicThreshold',50],['greedThreshold',50]]){
+    const invalid=fixture();invalid.participants[0][key]=value;assert.throws(()=>normalizeConfig(invalid));
+  }
+  const plan=defaultRosterPlan(30);plan.allocations.emotionInitial.fearful=10;plan.overrides={0:{emotionInitial:7,emotionProbability:95,emotionRecovery:60}};
+  const participants=generateRoster(plan,42),saved=normalizeExchangeConfig({...DEFAULT_EXCHANGE_CONFIG,participants,participantPlan:plan});
+  const restored=new SecuritiesSimulation(JSON.parse(JSON.stringify(saved)));
+  check(restored.market().agents[0].emotion===7 && restored.config.participants[0].emotionProbability===95 && PARTICIPANT_ATTRIBUTES.filter(a=>keys.includes(a.key)).length===7,'all seven traits support exact population allocation, manual overrides, save and fresh runtime initialization');
+  const mixedPlan=defaultRosterPlan(40),mixedConfig={...copy(DEFAULT_EXCHANGE_CONFIG),participants:generateRoster(mixedPlan,42),participantPlan:mixedPlan};
+  const first=new SecuritiesSimulation(mixedConfig),replay=new SecuritiesSimulation(mixedConfig);let emotionalOrders=0;
+  for(let tick=0;tick<36;tick++){
+    first.step();replay.step();
+    assert.deepEqual(first.markets.map(m=>m.last),replay.markets.map(m=>m.last));
+    assert.deepEqual(first.markets.map(m=>m.agents.map(a=>a.emotion)),replay.markets.map(m=>m.agents.map(a=>a.emotion)));
+    assert.equal([...first.accounts,first.player].reduce((sum,account)=>sum+account.cash,0),first.initialCash);
+    for(const market of first.markets){assert(market.emotionSummary().score>=0 && market.emotionSummary().score<=100);assert.equal([...market.agents,market.manualAgent].reduce((sum,agent)=>sum+agent.shares,0),market.totalShares);emotionalOrders+=market.last.decisions.filter(d=>d.source==='emotion' && d.quantity>0).length;}
+  }
+  check(emotionalOrders>0,'multi-stock emotional trading remains reproducible while conserving actual cash and shares');
+  fs.mkdirSync('artifacts/simulation-emotion',{recursive:true});
+  fs.writeFileSync('artifacts/simulation-emotion/engine-verification.json',JSON.stringify({passed:passed.length,checks:passed,sampled:{trials:1000,accepted:selected},emotionalOrders},null,2));
+  console.log(`${passed.length} emotion checks passed; 80% selected ${selected}/1000; ${emotionalOrders} real emotional orders`);
+})().catch(error=>{console.error(error.message);process.exitCode=1;});

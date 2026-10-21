@@ -1,0 +1,78 @@
+// Focused checks for direct orders, shared multi-stock collateral and settlement.
+const fs=require('node:fs'),assert=require('node:assert/strict');
+(async()=>{
+  const engineUrl='data:text/javascript;base64,'+fs.readFileSync('site/simulation-engine.js').toString('base64');
+  const controlsUrl='data:text/javascript;base64,'+fs.readFileSync('site/simulation-controls.js').toString('base64');
+  const rosterUrl='data:text/javascript;base64,'+Buffer.from(fs.readFileSync('site/simulation-roster.js','utf8').replace("'./simulation-engine.js'",JSON.stringify(engineUrl))).toString('base64');
+  const exchangeSource=fs.readFileSync('site/simulation-exchange.js','utf8').replace("'./simulation-engine.js'",JSON.stringify(engineUrl)).replace("'./simulation-controls.js'",JSON.stringify(controlsUrl)).replace("'./simulation-roster.js'",JSON.stringify(rosterUrl));
+  const {SecuritiesSimulation,DEFAULT_EXCHANGE_CONFIG,normalizeExchangeConfig}=await import('data:text/javascript;base64,'+Buffer.from(exchangeSource).toString('base64'));
+  const {defaultPopulation}=await import(engineUrl),copy=value=>JSON.parse(JSON.stringify(value)),passed=[];
+  const check=(condition,message)=>{assert(condition,message);passed.push(message);};
+  const make=(action='sell',wealth=1000)=>{
+    const config=copy(DEFAULT_EXCHANGE_CONFIG);config.companyNews=[];config.additionalCompanies.forEach(company=>company.companyNews=[]);
+    config.marketControls.sidecar.enabled=false;config.marketControls.circuitBreaker.enabled=false;
+    config.player={wealth:1000,leverage:1};
+    config.participants=[20,60,90].map((risk,index)=>({name:`거래자 ${index+1}`,wealth,risk,allocation:60,onRise:action,onFall:action,riseProbability:100,fallProbability:100,maxLeverage:1,newsStyle:'ignore'}));
+    return config;
+  };
+  const conservation=exchange=>{
+    assert.equal([...exchange.accounts,exchange.player].reduce((sum,account)=>sum+account.cash,0),exchange.initialCash);
+    for(const market of exchange.markets)assert.equal([...market.agents,market.manualAgent].reduce((sum,agent)=>sum+agent.shares,0),market.totalShares);
+  };
+  const legacy=copy(DEFAULT_EXCHANGE_CONFIG);delete legacy.additionalCompanies;delete legacy.player;
+  check(normalizeExchangeConfig(legacy).additionalCompanies.length===2 && normalizeExchangeConfig(legacy).player.leverage===1,'older configurations gain three distinct stocks and a cash-only player account');
+  for(const patch of [{player:{wealth:0}},{player:{wealth:1000,leverage:4}},{additionalCompanies:[{...legacy,id:'primary'}]}])assert.throws(()=>normalizeExchangeConfig({...make(),...patch}));
+  passed.push('invalid player funds, leverage and duplicate stock identities are rejected');
+  const initial=new SecuritiesSimulation(make());conservation(initial);
+  check(initial.markets.length===3 && initial.accounts.every(account=>initial.equity(account)===account.initialEquity) && initial.accounts[0].cash===4000000,'initial share allocation is split across stocks without multiplying participant wealth');
+  const population=defaultPopulation();population.enabled=true;
+  const generated=new SecuritiesSimulation({...make(),population});
+  check(generated.markets.every(market=>market.agents.every((agent,i)=>JSON.stringify(agent.traits)===JSON.stringify(generated.config.participants[i]))),'generated participant traits remain identical across stocks instead of being reshuffled by stock seeds');
+
+  const quiet=new SecuritiesSimulation(make('hold'));
+  quiet.submitOrder('primary',{action:'buy',type:'market',quantity:10});quiet.step();
+  check(quiet.market().manualOrder.status==='unfilled' && quiet.market().price===10000 && quiet.player.positions.primary.shares===0 && quiet.market().totalVolume===0,'market orders without an opposing order neither fill nor manufacture a price change');
+  const small=new SecuritiesSimulation(make()),large=new SecuritiesSimulation(make());
+  small.submitOrder('primary',{action:'buy',type:'market',quantity:1});large.submitOrder('primary',{action:'buy',type:'market',quantity:100});
+  small.step();large.step();conservation(small);conservation(large);
+  check(large.market().manualOrder.filledQuantity>small.market().manualOrder.filledQuantity && large.market().price>small.market().price,'larger market buys consume multiple ask levels and end at a higher execution price');
+  check(large.market().trades.filter(trade=>trade.buyer==='player').every(trade=>large.market().last.orders.some(order=>order.agentId===trade.seller && order.limit===trade.price)),'direct orders execute at actual opposing quotes rather than an arbitrary midpoint with an extreme user limit');
+  large.step();
+  check(large.market().manualOrder.reaction?.agents.length===3 && large.market().manualOrder.reaction.tick===2,'the first following tick records participant buy, sell and hold responses');
+  const limit=new SecuritiesSimulation(make());
+  limit.submitOrder('primary',{action:'buy',type:'limit',quantity:10,limit:100});limit.step();limit.step();
+  check(limit.market().manualOrder.status==='open' && limit.market().manualOrder.filledQuantity===0,'unmatched limit orders survive multiple ticks');
+  limit.cancelOrder('primary');limit.step();
+  check(limit.market().manualOrder.status==='canceled' && limit.market().orderBook.bids.every(order=>order.agentId!=='player'),'canceling a limit order removes it from matching and the displayed book');
+  const partial=new SecuritiesSimulation(make());partial.submitOrder('primary',{action:'buy',type:'market',quantity:1000});partial.step();
+  check(partial.market().manualOrder.status==='partialCanceled' && partial.market().manualOrder.filledQuantity>0 && partial.market().manualOrder.remaining>0,'insufficient liquidity produces a partial market fill and cancels only the remainder');
+  const collateral=new SecuritiesSimulation(make());
+  const cashOnly=collateral.maxOrderQuantity('primary','buy');collateral.setLeverage(3);
+  check(collateral.maxOrderQuantity('primary','buy')===cashOnly*3 && collateral.player.cash===collateral.player.initialEquity,'1x to 3x increases credit capacity without minting cash');
+  const reserved=new SecuritiesSimulation(make());reserved.submitOrder('primary',{action:'buy',type:'limit',quantity:500,limit:10000});
+  check(reserved.maxOrderQuantity('daily','buy')===625,'pending orders reserve cash and collateral across other stocks');
+  assert.throws(()=>reserved.submitOrder('primary',{action:'buy',type:'market',quantity:1}));
+  assert.throws(()=>reserved.submitOrder('daily',{action:'buy',type:'market',quantity:626}));
+  passed.push('duplicate per-stock orders and oversubscribed cross-stock orders are rejected');
+
+  const leveraged=new SecuritiesSimulation(make('sell',50000));leveraged.setLeverage(3);
+  leveraged.submitOrder('primary',{action:'buy',type:'market',quantity:2000});leveraged.step();conservation(leveraged);
+  check(leveraged.playerSnapshot().debt>0 && leveraged.player.positions.primary.shares===2000,'leveraged buys settle borrowed funds against real counterparty shares');
+  assert.throws(()=>leveraged.submitOrder('primary',{action:'sell',type:'market',quantity:2001}));
+  passed.push('ordinary sells cannot silently open a short position');
+  for(const agent of leveraged.market().agents){agent.traits.onRise='buy';agent.traits.onFall='buy';}
+  leveraged.setLeverage(1);leveraged.step();conservation(leveraged);
+  check(leveraged.market().last.decisions.some(decision=>decision.agentId==='player' && decision.forced) && leveraged.playerSnapshot().marginCalls>0,'reducing leverage below current exposure triggers collateral reduction on the next tick');
+  const shorting=new SecuritiesSimulation(make('buy',50000));
+  shorting.submitOrder('primary',{action:'short',type:'market',quantity:100});shorting.step();conservation(shorting);
+  check(shorting.player.positions.primary.shares===-100 && shorting.player.cash>shorting.player.initialEquity,'explicit short orders create a bounded negative position and receive the actual sale proceeds');
+  for(const agent of shorting.market().agents){agent.traits.onRise='sell';agent.traits.onFall='sell';}
+  shorting.submitOrder('primary',{action:'buy',type:'market',quantity:100});shorting.step();conservation(shorting);
+  check(shorting.player.positions.primary.shares===0 && shorting.player.positions.primary.averageCost===0 && Math.abs(shorting.player.cash-shorting.player.initialEquity-shorting.player.positions.primary.realizedPnL)<1e-6,'covering shorts closes cost basis and reconciles realized gains with cash');
+  const first=new SecuritiesSimulation(make()),replay=new SecuritiesSimulation(make());
+  for(const exchange of [first,replay])exchange.submitOrder('primary',{action:'buy',type:'market',quantity:100});
+  for(let tick=0;tick<35;tick++){first.step();replay.step();conservation(first);assert.deepEqual(first.markets.map(market=>market.last),replay.markets.map(market=>market.last));}
+  check(first.markets.every(market=>market.tick===35 && market.candles.length>0) && JSON.stringify(first.playerSnapshot())===JSON.stringify(replay.playerSnapshot()),'all stock clocks and charts advance together with deterministic replay and conserved shared balances');
+  fs.mkdirSync('artifacts/simulation-trading',{recursive:true});fs.writeFileSync('artifacts/simulation-trading/engine-verification.json',JSON.stringify({checks:passed.length,passed,impact:{small:small.market().price,large:large.market().price},leveraged:leveraged.playerSnapshot()},null,2));
+  console.log(`TRADING PASS: ${passed.length} focused checks.`);
+})().catch(error=>{console.error(error);process.exitCode=1;});

@@ -1,5 +1,6 @@
 import {LABS, labMarkup, mountLab} from './labs.js';
 import {marketMarkup, mountMarkets} from './markets.js';
+import {simulationMarkup, mountSimulation} from './simulation.js';
 
 const $ = selector => document.querySelector(selector);
 const escape = value => String(value ?? '').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
@@ -56,18 +57,21 @@ function navigate() {
   if (['dictionary','review','links','map'].includes(route)) { location.replace('#library'); return; }
   if (cleanup) { cleanup(); cleanup = null; }
   if (previous !== route) { filterGroup = '전체'; libraryQuery = ''; }
-  if (!['home','library','concept','bookmarks','lab','markets'].includes(route)) { route = 'home'; sub = ''; }
+  if (!['home','library','concept','bookmarks','lab','markets','simulation'].includes(route)) { route = 'home'; sub = ''; }
+  document.body.classList.toggle('simulation-layout',route === 'simulation');
   shell();
-  ({home, library, bookmarks:library, concept, lab:labPage, markets:marketPage})[route]();
-  const title = route === 'concept' && byId.has(sub) ? byId.get(sub).title : {home:'금융·경제 노트', library:'개념 사전', bookmarks:'북마크', lab:'실험실', markets:'시장 데이터', concept:'개념'}[route];
+  ({home, library, bookmarks:library, concept, lab:labPage, markets:marketPage, simulation:simulationPage})[route]();
+  const title = route === 'concept' && byId.has(sub) ? byId.get(sub).title : {home:'금융·경제 노트', library:'개념 사전', bookmarks:'북마크', lab:'실험실', markets:'시장 데이터', simulation:'증권시장 시뮬레이션', concept:'개념'}[route];
   document.title = title + ' · Fieldbook';
   window.scrollTo({top:0, behavior:'instant'});
   $('#main').focus({preventScroll:true});
   closeMenu();
 }
 function shell() {
-  const nav = [['home','분야','⌂'],['library','개념 사전','▦'],['bookmarks','북마크','☆'],['lab','실험실','◉'],['markets','시장 데이터','↗']];
-  $('#sidebar').innerHTML = `<a href="#home" class="brand"><span class="brand-icon">f.</span><div>fieldbook<span>FINANCE & ECONOMICS</span></div></a><nav>${nav.map(([id,label,icon]) => `<a href="#${id}" ${route === id ? 'aria-current="page"' : ''} class="nav-item ${route === id ? 'active' : ''}"><span class="nav-icon" aria-hidden="true">${icon}</span>${label}</a>`).join('')}</nav><div class="sidebar-label field-label">분야</div><nav class="field-navigation">${data.fields.map(f => `<a href="#library/${f.id}" ${route === 'library' && sub === f.id ? 'aria-current="page"' : ''}><i style="background:${f.color}"></i>${f.name}</a>`).join('')}</nav><div class="sidebar-bottom"><a href="finance-guide-print.html" target="_blank" rel="noreferrer">전체 내용 인쇄 ↗</a></div>`;
+  const nav = [['home','분야'],['library','개념 사전'],['bookmarks','북마크'],['lab','실험실'],['markets','시장 데이터'],['simulation','시장 시뮬레이션']];
+  const paths={home:'<path d="m3 10 9-7 9 7v10a1 1 0 0 1-1 1h-5v-7H9v7H4a1 1 0 0 1-1-1z"/>',library:'<rect x="3" y="4" width="7" height="16" rx="1"/><rect x="14" y="4" width="7" height="16" rx="1"/><path d="M6 8h1m10 0h1M6 12h1m10 0h1"/>',bookmarks:'<path d="M6 3h12v18l-6-4-6 4z"/>',lab:'<path d="M9 3h6m-5 0v7L4 20h16l-6-10V3M7 15h10"/>',markets:'<path d="M3 3v18h18M6 15l5-5 4 3 6-8"/>',simulation:'<path d="M5 3v18m7-18v18m7-18v18"/><rect x="3" y="7" width="4" height="7" fill="currentColor" stroke="none"/><rect x="10" y="5" width="4" height="11" fill="currentColor" stroke="none"/><rect x="17" y="10" width="4" height="8" fill="currentColor" stroke="none"/>'};
+  const icon=id=>`<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round">${paths[id]}</svg>`;
+  $('#sidebar').innerHTML = `<a href="#home" class="brand"><span class="brand-icon" aria-hidden="true">${icon('markets')}</span><div>fieldbook<span>금융·경제 노트</span></div></a><nav>${nav.map(([id,label]) => `<a href="#${id}" ${route === id ? 'aria-current="page"' : ''} class="nav-item ${route === id ? 'active' : ''}"><span class="nav-icon" aria-hidden="true">${icon(id)}</span>${label}</a>`).join('')}</nav><div class="sidebar-label field-label">분야별 노트</div><nav class="field-navigation">${data.fields.map(f => `<a href="#library/${f.id}" ${route === 'library' && sub === f.id ? 'aria-current="page"' : ''}><i style="background:${f.color}"></i>${f.name}</a>`).join('')}</nav><div class="sidebar-bottom"><a href="finance-guide-print.html" target="_blank" rel="noreferrer">전체 내용 인쇄 ↗</a></div>`;
   const label = nav.find(([id]) => id === route)?.[1] || '개념';
   $('#topbar').innerHTML = `<button class="icon-button menu-button" data-menu aria-label="메뉴 열기" aria-expanded="false">☰</button><div class="breadcrumb"><a href="#home">Fieldbook</a><span>/</span><b>${label}</b></div><button class="search-trigger" data-open-search><span aria-hidden="true">⌕</span><span>개념 검색</span><kbd>Ctrl K</kbd></button><a class="print-button" href="finance-guide-print.html" target="_blank" rel="noreferrer">인쇄 ↗</a>`;
   $('#footer').innerHTML = `<span>FIELDBOOK <b>·</b> ${data.edition}</span><span>경제 · 금융 · 재무설계 · 법률</span>`;
@@ -118,6 +122,10 @@ function marketPage() {
   $('#main').innerHTML = pageHead('시장 데이터') + marketMarkup();
   cleanup = mountMarkets($('#marketRoot'));
 }
+function simulationPage() {
+  $('#main').innerHTML = simulationMarkup();
+  cleanup = mountSimulation($('#simulationRoot'));
+}
 function globalSearch(q) {
   const query = q.trim().toLowerCase();
   if (!query) { $('#searchResults').innerHTML = '<p class="empty-search">제목이나 본문의 단어로 검색합니다.</p>'; return; }
@@ -129,6 +137,7 @@ document.addEventListener('click', e => {
   if (e.target.closest('[data-open-search]')) openSearch();
   if (e.target.closest('[data-close-search],[data-search-result]')) $('#searchDialog').close();
   if (e.target.closest('[data-menu]')) { document.body.classList.toggle('menu-open'); syncMenu(); }
+  if (e.target.closest('#sidebar a[href^="#"]')) closeMenu();
   if (document.body.classList.contains('menu-open') && !e.target.closest('#sidebar,[data-menu]')) closeMenu();
   const b = e.target.closest('[data-bookmark]');
   if (b) {

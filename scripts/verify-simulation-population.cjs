@@ -1,0 +1,92 @@
+// Focused verification for population proportions; no broad application regression.
+const fs = require('node:fs');
+const assert = require('node:assert/strict');
+const {chromium} = require('C:/Users/kek28/.cache/codex-runtimes/codex-primary-runtime/dependencies/node/node_modules/playwright');
+const output = 'artifacts/simulation-population';
+const url = process.env.FIELDBOOK_URL || 'http://127.0.0.1:8765';
+const checks = [];
+const ok = (condition,name) => {assert(condition,name);checks.push(name);};
+
+(async () => {
+  fs.mkdirSync(output,{recursive:true});
+  const engine = await import('data:text/javascript;base64,'+fs.readFileSync('site/simulation-engine.js').toString('base64'));
+  const {defaultPopulation,generatePopulation,allocatePopulation,normalizeConfig,MarketSimulation,DEFAULT_CONFIG,PARTICIPANT_ATTRIBUTES,distributionGroups} = engine;
+  const population = defaultPopulation();
+  population.enabled = true;
+  population.distributions.risk = {averse:20,neutral:20,seeking:60};
+  const config = {...DEFAULT_CONFIG,population}, generated = normalizeConfig(config);
+  ok(generated.participants.length===20 && generated.participants.filter(p=>p.risk===85).length===12,'60% risk-seeking creates exactly 12 of 20 actual participants');
+  for(const attribute of PARTICIPANT_ATTRIBUTES) {
+    const groups = distributionGroups(attribute), counts = allocatePopulation(20,groups.map(g=>population.distributions[attribute.key][g.key]));
+    groups.forEach((g,i)=>assert.equal(generated.participants.filter(p=>p[attribute.key]===g.value).length,counts[i]));
+  }
+  checks.push('wealth, risk, rise/fall responses, allocation and leverage all match their independent headcounts');
+  assert.deepEqual(generatePopulation(population,42),generatePopulation(population,42));
+  const changed = generatePopulation(population,43);
+  ok(JSON.stringify(changed)!==JSON.stringify(generated.participants),'population mixing is reproducible and responds to the seed');
+  const extended = [...PARTICIPANT_ATTRIBUTES,{key:'patience',type:'number',default:10,min:0,max:20}];
+  const withExtra = generatePopulation(population,42,extended).map(({patience,...p})=>p);
+  assert.deepEqual(withExtra,generated.participants);
+  checks.push('adding an attribute preserves all existing attribute assignments');
+  const small = {...population,count:3,distributions:{...population.distributions,risk:{averse:33,neutral:33,seeking:34}}};
+  ok(generatePopulation(small,42).length===3 && allocatePopulation(3,[33,33,34]).join(',')==='1,1,1','small population rounding preserves the total headcount');
+  const invalid = {...population,distributions:{...population.distributions,risk:{averse:20,neutral:20,seeking:70}}};
+  assert.throws(()=>normalizeConfig({...config,population:invalid}),/100%/);
+  checks.push('invalid percentage totals cannot enter the market');
+  const large = new MarketSimulation({...config,population:{...population,count:100}});
+  const beforeCash=large.initialCash, beforeShares=large.totalShares;
+  for(let i=0;i<60;i++)large.step();
+  ok(large.agents.length===100 && large.agents.reduce((s,a)=>s+a.cash,0)===beforeCash && large.agents.reduce((s,a)=>s+a.shares,0)===beforeShares,'100 generated participants settle trades while conserving cash and shares');
+
+  const browser = await chromium.launch({headless:true,channel:'msedge'});
+  try {
+    const page = await browser.newPage({viewport:{width:1440,height:1000},reducedMotion:'reduce'});
+    const errors=[];
+    page.on('pageerror',error=>errors.push(error.message));
+    await page.goto(url+'/#simulation');
+    await page.locator('#simPlay').waitFor();
+    await page.locator('[data-sim-tab="settings"]').click();
+    ok(await page.locator('#simIndividualPanel').isVisible() && (await page.locator('#simResultCount').innerText()).startsWith('6명'),'existing individual configuration remains available');
+    await page.locator('[data-config-mode="population"]').click();
+    ok(await page.locator('#simPopulationPanel').isVisible() && !(await page.locator('#simIndividualPanel').isVisible()),'population mode opens the percentage controls');
+    await page.locator('#sim-ratio-risk-averse').fill('20');
+    await page.locator('#sim-ratio-risk-neutral').fill('20');
+    await page.locator('#sim-ratio-risk-seeking').fill('60');
+    ok((await page.locator('[data-population-headcount="seeking"]').innerText()).includes('12명'),'percentage editor previews actual participant headcounts');
+    await page.locator('[data-distribution-tab="onRise"]').click();
+    await page.locator('#sim-ratio-onRise-leverage').fill('30');
+    await page.locator('#simConfig button[type="submit"]').click();
+    ok((await page.locator('#simConfigError').innerText()).includes('100%') && (await page.locator('#simResultCount').innerText()).startsWith('6명'),'invalid percentages are rejected without replacing the existing market');
+    await page.locator('#simNormalizeDistribution').click();
+    ok((await page.locator('#simDistributionTotal').innerText()).includes('100% ✓'),'normalization converts entered weights to a total of 100%');
+    await page.locator('[data-distribution-tab="risk"]').click();
+    await page.locator('#simConfig button[type="submit"]').click();
+    ok((await page.locator('#simResultCount').innerText()).startsWith('20명') && (await page.locator('[data-risk-composition="seeking"]').innerText()).includes('12명 · 60%'),'applying percentages creates actual agents and shows the applied market composition');
+    await page.locator('#simStep').click();
+    ok((await page.locator('#simClock').innerText())==='09:01:00' && (await page.locator('#simVolume').innerText())!=='0주','generated population participates in the actual simulation');
+    await page.locator('#simPopulationPanel').screenshot({path:output+'/population-desktop.png'});
+    await page.reload();
+    await page.locator('#simPlay').waitFor();
+    await page.locator('[data-sim-tab="settings"]').click();
+    ok(await page.locator('#simPopulationPanel').isVisible() && (await page.locator('#sim-ratio-risk-seeking').inputValue())==='60' && (await page.locator('#simResultCount').innerText()).startsWith('20명'),'population mode, ratios and generated agents survive reload');
+    await page.locator('[data-config-mode="individual"]').click();
+    await page.locator('#sim-name-0').fill('수정한 참여자');
+    await page.locator('[data-participant-page="1"]').click();
+    await page.locator('#sim-name-2').fill('다음 쪽 참여자');
+    await page.locator('#simConfig button[type="submit"]').click();
+    const stored = await page.evaluate(()=>JSON.parse(localStorage.getItem('fieldbook-simulation-config-v1')));
+    ok(stored.participants.length===20 && stored.participants[0].name==='수정한 참여자' && stored.participants[2].name==='다음 쪽 참여자' && !stored.population,'manual edits preserve agents on every page and disable automatic regeneration');
+    await page.locator('[data-config-mode="population"]').click();
+    await page.locator('#simPopulationCount').fill('3');
+    await page.locator('#sim-ratio-risk-averse').fill('33');
+    await page.locator('#sim-ratio-risk-neutral').fill('33');
+    await page.locator('#sim-ratio-risk-seeking').fill('34');
+    ok((await page.locator('[data-population-headcount="seeking"]').innerText()).includes('1명 · 33.3%'),'preview explains rounding rather than displaying a false exact percentage');
+    await page.setViewportSize({width:320,height:844});
+    ok(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth),'320px population controls have no page overflow');
+    await page.locator('#simPopulationPanel').screenshot({path:output+'/population-mobile-320.png'});
+    ok(errors.length===0,'population configuration produces no browser errors');
+    fs.writeFileSync(output+'/verification.json',JSON.stringify({checks:checks.length,passed:checks,errors},null,2));
+    console.log(`POPULATION PASS: ${checks.length} focused checks.`);
+  } finally {await browser.close();}
+})().catch(error=>{console.error(error);process.exitCode=1;});
