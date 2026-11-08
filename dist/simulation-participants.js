@@ -4,7 +4,7 @@ import {participantHelp} from './simulation-help.js';
 
 const esc=value=>String(value ?? '').replace(/[&<>"']/g,char=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[char]));
 const copy=value=>JSON.parse(JSON.stringify(value));
-const sections={all:{label:'전체 속성'},assets:{label:'재산·위험',keys:['wealth','risk','allocation','maxLeverage']},rise:{label:'상승 대응',keys:['onRise','riseProbability']},fall:{label:'하락 대응',keys:['onFall','fallProbability']},news:{label:'기업 소식',keys:['newsStyle','newsProbability','newsSensitivity','newsDelay','newsAccess']},volume:{label:'거래량',keys:['volumeStyle','volumeProbability','volumeSensitivity','volumeThreshold']},emotion:{label:'감정',keys:['emotionStyle','emotionInitial','emotionSensitivity','emotionRecovery','emotionProbability','panicThreshold','greedThreshold']}};
+const sections={all:{label:'전체 속성'},assets:{label:'재산·위험',keys:['wealth','risk','allocation','maxLeverage']},protection:{label:'손절·익절',keys:['stopLoss','takeProfit','trailingStop']},rise:{label:'상승 대응',keys:['onRise','riseProbability']},fall:{label:'하락 대응',keys:['onFall','fallProbability']},news:{label:'기업 소식',keys:['newsStyle','newsProbability','newsSensitivity','newsDelay','newsAccess']},volume:{label:'거래량',keys:['volumeStyle','volumeProbability','volumeSensitivity','volumeThreshold']},emotion:{label:'감정',keys:['emotionStyle','emotionInitial','emotionSensitivity','emotionRecovery','emotionProbability','panicThreshold','greedThreshold']}};
 
 export class ParticipantSheet {
   constructor(host,pager,{getDraft,onChange,onLayout,onHelp}){

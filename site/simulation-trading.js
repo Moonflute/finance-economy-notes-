@@ -12,11 +12,12 @@ export class TradingPanel {
     this.toggle=document.createElement('button');this.toggle.type='button';this.toggle.className='sim-manual-toggle';
     root.querySelector('.sim-company').append(this.toggle);
     this.element=document.createElement('aside');this.element.className='sim-trading-ticket';this.element.setAttribute('aria-label','직접 거래');
-    this.element.innerHTML=`<div class="sim-trading-tabs" role="group" aria-label="내 거래 화면">${[['order','주문'],['account','내 계좌'],['reaction','참여자 반응']].map(([key,label])=>`<button type="button" data-trading-view="${key}">${label}</button>`).join('')}</div>
+    this.element.innerHTML=`<div class="sim-trading-tabs" role="group" aria-label="내 거래 화면">${[['order','주문'],['estimate','체결 예상'],['account','내 계좌'],['reaction','참여자 반응']].map(([key,label])=>`<button type="button" data-trading-view="${key}">${label}</button>`).join('')}</div>
       <section data-trading-panel="order"><p class="sim-player-cash" id="simPlayerCash"></p><form id="simOrderForm"><div class="sim-order-sides" role="group" aria-label="주문 방향">${[['buy','매수'],['sell','매도'],['short','공매도']].map(([key,label])=>`<button type="button" data-order-action="${key}">${label}</button>`).join('')}</div><div class="sim-order-fields"><label for="simOrderType"><span>주문 종류</span><select id="simOrderType"><option value="market">시장가</option><option value="limit">지정가</option></select></label><label for="simOrderLeverage"><span>계좌 차입 한도</span><select id="simOrderLeverage">${[1,2,3].map(value=>`<option value="${value}">${value}배${value===1?' · 차입 없음':''}</option>`).join('')}</select></label><label for="simOrderQuantity"><span>수량 <small>주</small><button type="button" data-order-max>최대</button></span><input id="simOrderQuantity" type="number" min="1" step="1" required></label><label for="simOrderLimit"><span id="simOrderPriceLabel">예상 가격 <small>원</small></span><input id="simOrderLimit" type="number" min="1" max="1000000000" step="1" required></label></div><div class="sim-order-estimate"><span id="simOrderEstimate"></span><small id="simOrderCapacity"></small></div><button type="submit" class="button primary" id="simSubmitOrder">매수 주문</button><p id="simOrderError" class="sim-order-error" role="alert"></p></form><div id="simManualOrderStatus" class="sim-manual-order-status" role="status"></div></section>
       <section data-trading-panel="account" hidden><div id="simPlayerMetrics" class="sim-player-metrics"></div><p id="simPlayerExposure" class="sim-player-exposure"></p><div id="simPlayerPositions" class="sim-player-positions"></div><div id="simPlayerPositionPager" class="sim-manual-pager"></div></section>
       <section data-trading-panel="reaction" hidden><div id="simManualImpact" class="sim-manual-impact"></div><p id="simReactionCounts" class="sim-reaction-counts"></p><div id="simManualReactions" class="sim-manual-reactions"></div><div id="simReactionPager" class="sim-manual-pager"></div><div class="sim-reaction-actions"><button type="button" class="sim-subtle-button" data-next-reaction>10초 진행</button><button type="button" class="sim-subtle-button" data-all-reactions>참여자 현황 →</button></div></section>`;
     root.querySelector('.sim-terminal-body').append(this.element);
+    this.element.insertAdjacentHTML('beforeend','<section data-trading-panel="estimate" hidden><p id="simExecutionHeading" class="sim-execution-heading"></p><div id="simExecutionMetrics" class="sim-execution-metrics"></div><p id="simExecutionState" class="sim-execution-state" role="status"></p><p id="simExecutionLiquidity" class="sim-execution-liquidity"></p><p class="sim-execution-note">현재 호가를 고정해 계산합니다. 다음 틱의 주문·취소·VI로 실제 체결은 달라질 수 있습니다. 가격 차이에는 스프레드가 포함됩니다.</p><button type="button" class="sim-subtle-button" data-trading-view="order">수량·가격 바꾸기 →</button></section>');
     this.$=selector=>this.element.querySelector(selector);
     this.$('#simOrderQuantity').value=state.quantity;
     this.$('#simOrderType').value=state.type;
@@ -70,7 +71,7 @@ export class TradingPanel {
     if(isMarket)this.$('#simOrderLimit').value=market.price;
     else if(state.limits[market.assetId]!==undefined)this.$('#simOrderLimit').value=state.limits[market.assetId];
     this.$('#simOrderLimit').disabled=isMarket || blocked;
-    this.$('#simOrderPriceLabel').innerHTML=`${isMarket?'예상 가격':'지정가'} <small>원</small>`;
+    this.$('#simOrderPriceLabel').innerHTML=`${isMarket?'현재가':'지정가'} <small>원</small>`;
     for(const id of ['#simOrderType','#simOrderLeverage','#simOrderQuantity'])this.$(id).disabled=blocked;
     this.$('#simOrderLeverage').disabled=blocked || player.unlimited;
     this.$('[data-order-max]').disabled=blocked;
@@ -78,9 +79,21 @@ export class TradingPanel {
     const actionLabel={buy:'매수',sell:'매도',short:'공매도'}[state.action],quantity=Number(this.$('#simOrderQuantity').value),price=Number(this.$('#simOrderLimit').value);
     const maximum=exchange.maxOrderQuantity(market.assetId,state.action,state.type,price);
     this.$('#simPlayerCash').textContent=player.unlimited?'자금 무제한 ∞':`현금 ${money(player.cash)} · 차입 ${money(player.debt)}`;
-    this.$('#simOrderEstimate').textContent=Number.isFinite(quantity*price)?`예상 ${money(quantity*price)}`:'수량과 가격을 입력하세요';
+    this.$('#simOrderEstimate').textContent=Number.isFinite(quantity*price)?`기준 금액 ${money(quantity*price)}`:'수량과 가격을 입력하세요';
     this.$('[data-order-max]').hidden=!Number.isFinite(maximum);
     this.$('#simOrderCapacity').textContent=Number.isFinite(maximum)?`최대 ${fmt(maximum)}주`:'자금 무제한 · 실제 반대 주문만 체결';
+    if(state.show&&state.view==='estimate'){
+      let preview;
+      try{preview=exchange.previewOrder(market.assetId,{action:state.action,type:state.type,quantity,limit:price});}
+      catch(error){preview={filled:0,remaining:quantity,vwap:null,slippageBps:null,reason:error.message};}
+      this.$('#simExecutionHeading').textContent=`${market.config.company} · ${actionLabel} ${fmt(quantity)}주`;
+      const fields=[['예상 평균 체결가',preview.vwap===null?'—':fmt(preview.vwap,2)+'원'],['체결 가능 / 잔량',`${fmt(preview.filled)} / ${fmt(preview.remaining)}주`],['현재가 대비 비용',preview.slippageBps===null?'—':signed(preview.slippageBps/100)+'%'],['예상 수수료',preview.filled?fmt(preview.fees)+'원':'—']];
+      this.$('#simExecutionMetrics').innerHTML=fields.map(([label,value])=>`<div><span>${label}</span><strong>${esc(value)}</strong></div>`).join('');
+      this.$('#simExecutionState').textContent=preview.reason+(preview.lastPrice?` · 마지막 체결가 ${fmt(preview.lastPrice)}원`:'');
+      const bid=market.orderBook.bids[0]?.limit,ask=market.orderBook.asks[0]?.limit,spread=bid&&ask?`${fmt(ask-bid)}원`:'—';
+      const exits=market.last.decisions.filter(d=>d.riskExit).length;
+      this.$('#simExecutionLiquidity').textContent=`스프레드 ${spread} · 공급 목표 ${market.model.backgroundLiquidity?fmt(market.depthFactor*100)+'%':'꺼짐'} · 자동 청산 ${exits}명`;
+    }
     this.$('#simSubmitOrder').textContent=exchange.sessionClosed?'장 마감':halted?'거래 재개 대기':`${actionLabel} 주문`;
     this.$('#simSubmitOrder').disabled=blocked || Boolean(isActive(order));
     this.$('#simSubmitOrder').dataset.side=state.action;

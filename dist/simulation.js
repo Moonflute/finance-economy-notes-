@@ -481,6 +481,9 @@ export function mountSimulation(root) {
     $('#simBookPrice').textContent = fmt(m.price)+'원';
     $('#simBookPrice').className = 'sim-book-mid '+directionClass(change);
     $('#simBookSummary').textContent = session.exchange.sessionClosed?'장 마감':m.viUntil>m.tick?'단일가 주문 수집':session.exchange.controls.snapshot().halted?'서킷브레이커 · 거래 중단':`이번 틱 체결 ${fmt(m.last.volume)}주`;
+    const bestBid=m.orderBook.bids[0]?.limit,bestAsk=m.orderBook.asks[0]?.limit;
+    if(!session.exchange.sessionClosed&&!controlState.halted&&m.viUntil<=m.tick&&bestBid&&bestAsk)$('#simBookSummary').textContent=`스프레드 ${fmt(bestAsk-bestBid)}원 · 공급 ${m.model.backgroundLiquidity?fmt(m.depthFactor*100)+'%':'꺼짐'}`;
+    $('#simBookSummary').title='스프레드는 최우선 매도·매수 가격 차이입니다. 공급은 배경 호가의 기본 잔량 대비 목표 비율이며 실제 잔량은 재고·현금·체결에 따라 달라집니다.';
     $('#simTradeCount').textContent = `누적 ${fmt(m.totalTrades)}건`;
     const names = {...Object.fromEntries([...m.agents,...m.background].map(a => [a.id,a.traits.name])),player:'나'};
     session.tradePage=Math.min(session.tradePage,Math.max(0,Math.ceil(m.trades.length/session.tradePageSize)-1));

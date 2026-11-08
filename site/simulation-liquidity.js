@@ -1,11 +1,13 @@
 import {MarketSimulation,calculateCompanyMetrics,calculateEconomicScenario,normalizeMacro} from './simulation-engine.js';
+import {protectiveDecision} from './simulation-risk.js';
 
 export const SESSION_TICKS=2340;
-export const MODEL_VERSION='market-2';
+export const MODEL_VERSION='market-3';
 export const MODEL_FIELDS=[
   {key:'outstandingShares',label:'종목별 발행주식',value:10000000,min:100000,max:100000000,step:1,unit:'주'},
   {key:'depth',label:'호가 한 단계 잔량',value:20000,min:100,max:100000,step:1,unit:'주'},
   {key:'dailyVolatility',label:'기본 일 변동성',value:2,min:0,max:10,step:0.1,unit:'%'},
+  {key:'liquiditySensitivity',label:'유동성 위축 민감도',value:50,min:0,max:100,step:1,unit:'% · 0은 위축 끄기'},
   {key:'feeBps',label:'체결 수수료',value:1.5,min:0,max:100,step:0.1,unit:'bp / 편도'},
   {key:'borrowRate',label:'차입·대주 연 이율',value:5,min:0,max:50,step:0.1,unit:'%'},
   {key:'shortPoolPercent',label:'공매도 대주 한도',value:5,min:0,max:20,step:0.1,unit:'발행주식 %'}
@@ -42,6 +44,7 @@ export class LiquidMarketSimulation extends MarketSimulation {
     this.newsValueFactor=1;this.refreshValue();this.center=this.price;this.volatility=1;this.flowMemory=0;
     this.book=[];this.sequence=0;this.tradeArchive=[];this.treasury=0;this.dailyReference=this.price;this.staticReference=this.price;
     this.viUntil=0;this.auctionReason='';this.auctionEvents=[];this.sessionDay=0;this.initialCash=this.allAgents().reduce((s,a)=>s+a.cash,0);
+    this.liquidityStress=0;this.depthFactor=1;this.riskEvents=[];
   }
   allAgents(){return [...this.agents,...this.background,...(this.manualAgent?[this.manualAgent]:[])];}
   refreshValue(){this.economicScenario=calculateEconomicScenario(this.config.financials,this.config.macro,this.config.companyProfile,this.price,this.totalShares);this.valueAnchor=Math.max(1,this.baseValueAnchor*this.newsValueFactor*this.economicScenario.valuationFactor);}
@@ -65,6 +68,7 @@ export class LiquidMarketSimulation extends MarketSimulation {
   safeCapacity(agent,side,price,order){
     if(agent.background)return side==='buy'?Math.floor(agent.cash/(price*(1+this.model.feeBps/10000))):Math.max(0,agent.shares);
     const cap=this.capacity(agent,side,price,order);
+    if(order.riskExit)return Math.min(cap,side==='sell'?Math.max(0,agent.shares):Math.max(0,-agent.shares));
     return side==='sell'?Math.min(cap,this.borrowAvailable(agent)):cap;
   }
   // Unlike a per-tick emotion shock, gradual changes allow participants to
@@ -75,6 +79,14 @@ export class LiquidMarketSimulation extends MarketSimulation {
     // Preserve margin checks on every tick even when discretionary decisions wait.
     const eq=this.equity(agent),gross=this.grossExposure?.(agent) ?? Math.abs(agent.shares*this.price);
     const margin=!agent.unlimited&&Math.abs(agent.shares)>0&&(eq<=0||gross>eq*agent.traits.maxLeverage*1.12);
+    if(!context.halted&&!margin&&!agent.manual){
+      const position=this.positionFor?.(agent);
+      if(position){
+        const protection=protectiveDecision(position,agent.traits,this.price,this.tick);
+        if(protection?.riskTrigger)this.riskEvents.push({agentId:agent.id,...protection.riskTrigger});
+        if(protection)return protection;
+      }
+    }
     if(!margin&&!agent.manual&&(this.tick+offset)%interval)return {targetShares:agent.shares,label:'다음 판단 대기',reason:`${interval*10}초 간격 · 개인별 판단 시점`,signal:0};
     const horizon=[6,18,30,60][Math.floor(draw(this.config.seed,agent.id,'horizon')*4)];
     const momentum=this.price/this.prices[Math.max(0,this.prices.length-1-horizon)]-1;
@@ -96,17 +108,24 @@ export class LiquidMarketSimulation extends MarketSimulation {
     const innovation=this.model.dailyVolatility/100/Math.sqrt(SESSION_TICKS)*this.volatility*u*(.55*commonShock+.835*z)*tail;
     this.center=clamp(this.center*Math.exp(innovation+clamp(Math.log(this.valueAnchor/this.center)*.001,-.0003,.0003)+this.flowMemory*.00004),this.lowerLimit,this.upperLimit);
     this.flowMemory*=.92;
+    const previous=this.prices.at(-2) ?? this.price;
+    const jump=Math.min(1,Math.abs(Math.log(this.price/previous))/.01);
+    const volatilityRisk=clamp((this.volatility*this.model.dailyVolatility/2-1)/2,0,1);
+    const inventoryRisk=Math.max(...this.background.filter(a=>a.maker).map(a=>Math.min(1,Math.abs(a.shares-a.initialShares)/Math.max(1,a.initialShares))));
+    const observed=Math.max(jump,volatilityRisk*.7,Math.abs(this.flowMemory)/3*.6,inventoryRisk);
+    this.liquidityStress=Math.max(observed,this.liquidityStress*.94);
+    this.depthFactor=1-.9*this.model.liquiditySensitivity/100*this.liquidityStress;
     if(!this.model.backgroundLiquidity)return;
     // Makers keep quotes until expiry or a meaningful change in their valuation.
     for(const a of this.background.filter(a=>a.maker)){
       const existing=this.book.filter(o=>o.agentId===a.id),size=tickSize(this.center);
-      if(existing.length&&Math.abs((a.lastCenter ?? this.center)-this.center)<size&&this.tick%6)continue;
-      this.book=this.book.filter(o=>o.agentId!==a.id);a.lastCenter=this.center;
+      if(existing.length&&Math.abs((a.lastCenter ?? this.center)-this.center)<size&&Math.abs((a.lastDepthFactor ?? 1)-this.depthFactor)<.04&&this.tick%6)continue;
+      this.book=this.book.filter(o=>o.agentId!==a.id);a.lastCenter=this.center;a.lastDepthFactor=this.depthFactor;
       const inventory=(a.shares-a.initialShares)/Math.max(1,a.initialShares),mid=this.center*(1-clamp(inventory,-1,1)*.001);
-      const spreadTicks=Math.max(1,Math.round(this.volatility));
+      const spreadTicks=Math.max(1,Math.round(this.volatility))+Math.round(4*(1-this.depthFactor));
       const bestBid=quotePrice(mid-(spreadTicks-1)*size/2,-1),bestAsk=quotePrice(bestBid+spreadTicks*size,1);
       for(let level=0;level<5;level++)for(const side of ['buy','sell']){
-        const limit=(side==='buy'?bestBid:bestAsk)+(side==='buy'?-1:1)*level*size*2,qty=Math.floor(this.model.depth/4*(1+level*.5));
+        const limit=(side==='buy'?bestBid:bestAsk)+(side==='buy'?-1:1)*level*size*2,qty=Math.floor(this.model.depth/4*(1+level*.5)*this.depthFactor);
         this.newOrder(a,side,qty,limit,{expires:this.tick+12});
       }
     }
@@ -144,6 +163,8 @@ export class LiquidMarketSimulation extends MarketSimulation {
         buyer.lastFilled+=quantity;seller.lastFilled-=quantity;bid.remaining-=quantity;ask.remaining-=quantity;this.price=price;
         if(buyer.manual)this.onManualFill?.({side:'buy',quantity,price,priorShares:priorBuyerShares,fee});
         if(seller.manual)this.onManualFill?.({side:'sell',quantity,price,priorShares:priorSellerShares,fee});
+        if(!buyer.manual&&!buyer.background)this.onParticipantFill?.(buyer,{side:'buy',quantity,price,priorShares:priorBuyerShares,fee});
+        if(!seller.manual&&!seller.background)this.onParticipantFill?.(seller,{side:'sell',quantity,price,priorShares:priorSellerShares,fee});
         for(const o of [bid,ask])if(o.manualRequest){const r=o.manualRequest;r.remaining-=quantity;r.filledQuantity+=quantity;r.amount+=amount;r.fees=(r.fees||0)+fee;r.lastFillTick=this.tick;r.afterPrice=price;r.reaction=null;}
         const aggressor=bid.priority>ask.priority?buyer:seller,sign=bid.priority>ask.priority?1:-1;
         if(!aggressor.maker)this.flowMemory=clamp(this.flowMemory+sign*quantity/(this.model.depth*5),-3,3);
@@ -170,10 +191,14 @@ export class LiquidMarketSimulation extends MarketSimulation {
         const d=this.decision(a,context),difference=d.targetShares-a.shares,side=difference>0?'buy':'sell';
         a.lastAction=d.label;a.lastReason=d.reason;a.participationRate=100;a.heat=a.traits.risk;
         if(d.forced){a.marginCalls++;if(a.manual)this.cancelManualOrder('반대매매');}
-        let quantity=Math.floor(Math.abs(difference)*(d.forced?1:.025+a.traits.risk/100*.035));
-        const limit=this.center*(1+d.signal+(side==='buy'?1:-1)*(d.forced?.015:.0007));
+        let quantity=Math.floor(Math.abs(difference)*(d.forced||d.riskExit?1:.025+a.traits.risk/100*.035));
+        const limit=d.riskExit?(side==='buy'?this.upperLimit:this.lowerLimit):this.center*(1+d.signal+(side==='buy'?1:-1)*(d.forced?.015:.0007));
         quantity=Math.min(quantity,this.safeCapacity(a,side,Math.max(1,quotePrice(limit)),{}));
-        if(quantity){this.book=this.book.filter(o=>o.agentId!==a.id||o.manualRequest);this.newOrder(a,side,quantity,limit,{forced:!!d.forced});}
+        if(d.riskExit){
+          this.book=this.book.filter(o=>o.agentId!==a.id||o.riskExit);
+          if(quantity&&!this.book.some(o=>o.agentId===a.id&&o.riskExit))this.newOrder(a,side,quantity,limit,{riskExit:true,isMarket:true,allowShort:false,expires:Infinity});
+        }else if(d.cooldown)this.book=this.book.filter(o=>o.agentId!==a.id);
+        else if(quantity){this.book=this.book.filter(o=>o.agentId!==a.id||o.manualRequest);this.newOrder(a,side,quantity,limit,{forced:!!d.forced});}
         decisions.push({agentId:a.id,...d,side,quantity});
       }
       if(this.model.backgroundLiquidity)for(const a of this.background.filter(a=>!a.maker)){
@@ -208,7 +233,7 @@ export class LiquidMarketSimulation extends MarketSimulation {
       else if(!halted&&!waiting&&!this.viUntil&&request.type==='market'){request.status=request.filledQuantity?'partialCanceled':'unfilled';request.reason='시장가 잔량 취소';this.book=this.book.filter(o=>o.manualRequest!==request);}
       else request.status=request.filledQuantity?'partial':'open';
     }
-    this.book=this.book.filter(o=>o.remaining>0&&(!o.manualRequest||active(o.manualRequest)));this.updateBook();
+    this.book=this.book.filter(o=>o.remaining>0&&(!o.manualRequest||active(o.manualRequest))&&(!o.riskExit||halted||waiting||this.viUntil));this.updateBook();
     const volume=trades.reduce((s,t)=>s+t.quantity,0),high=Math.max(open,...trades.map(t=>t.price)),low=Math.min(open,...trades.map(t=>t.price)),index=Math.floor((this.tick-1)/6);
     let c=this.candles.at(-1);if(!c||c.index!==index){c={index,open,high,low,close:this.price,volume,trades:trades.length};this.candles.push(c);}else{c.high=Math.max(c.high,high);c.low=Math.min(c.low,low);c.close=this.price;c.volume+=volume;c.trades+=trades.length;}
     this.totalVolume+=volume;this.totalTrades+=trades.length;this.tradeArchive.push(...trades);this.trades=[...trades].reverse().concat(this.trades).slice(0,40);

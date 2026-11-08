@@ -2,6 +2,7 @@ import {DEFAULT_CONFIG,normalizeConfig,DEFAULT_FINANCIALS,normalizeCompanyProfil
 import {MarketControls,DEFAULT_MARKET_CONTROLS,normalizeMarketControls} from './simulation-controls.js';
 import {normalizeRosterPlan} from './simulation-roster.js';
 import {LiquidMarketSimulation,normalizeModel,DEFAULT_MODEL,SESSION_TICKS,MODEL_VERSION,draw,quotePrice,tickSize} from './simulation-liquidity.js';
+import {recordPositionFill} from './simulation-risk.js';
 
 const copy=value=>JSON.parse(JSON.stringify(value));
 const activeOrder=order=>order && ['queued','open','partial'].includes(order.status);
@@ -77,6 +78,8 @@ export class SecuritiesSimulation {
       market.grossExposure=agent=>this.gross(this.byAccountId.get(agent.id));
       market.capacity=(agent,side,price,order)=>this.capacity(market,agent,side,price,order);
       market.onManualFill=fill=>this.recordFill(market,fill);
+      market.positionFor=agent=>this.byAccountId.get(agent.id).positions[market.assetId];
+      market.onParticipantFill=(agent,fill)=>this.recordFill(market,fill,agent.id);
     }
     this.initialCash=[...this.accounts,this.player,...this.markets.flatMap(m=>m.background)].reduce((sum,account)=>sum+account.cash,0);
   }
@@ -154,17 +157,41 @@ export class SecuritiesSimulation {
     if(leverage!==this.player.leverage)for(const market of this.markets)market.cancelManualOrder('레버리지 변경으로 취소');
     this.player.leverage=leverage;this.config.player.leverage=leverage;this.recordAction('leverage',{value:leverage});
   }
-  recordFill(market,{side,quantity,price,priorShares,fee=0}){
-    const position=this.player.positions[market.assetId],direction=side==='buy'?1:-1;
-    position.realizedPnL-=fee;
-    if(!priorShares || Math.sign(priorShares)===direction){
-      position.averageCost=(Math.abs(priorShares)*position.averageCost+quantity*price)/(Math.abs(priorShares)+quantity);
-    }else{
-      const closed=Math.min(Math.abs(priorShares),quantity);
-      position.realizedPnL+=closed*(price-position.averageCost)*Math.sign(priorShares);
-      if(!position.shares)position.averageCost=0;
-      else if(Math.sign(position.shares)!==Math.sign(priorShares))position.averageCost=price;
-    }
+  recordFill(market,fill,id='player'){
+    recordPositionFill(this.byAccountId.get(id).positions[market.assetId],fill,market.tick);
+  }
+  previewOrder(id,{action,type='market',quantity,limit}){
+    const market=this.market(id),reference=market.price;
+    const empty=reason=>({filled:0,remaining:Number(quantity)||0,vwap:null,lastPrice:null,fees:0,amount:0,slippageBps:null,reason});
+    if(this.sessionClosed||this.controls.snapshot().halted)return empty('거래 중단·장 마감');
+    if(this.controls.snapshot().auction||market.viUntil>market.tick)return empty('단일가 수집 중 · 예상 체결가 계산 보류');
+    if(activeOrder(market.manualOrder))return empty('현재 대기 주문을 먼저 취소하세요.');
+    quantity=Number(quantity);limit=Number(limit);
+    if(!['buy','sell','short'].includes(action)||!['market','limit'].includes(type)||!Number.isSafeInteger(quantity)||quantity<1)return empty('수량은 1주 이상의 정수로 입력하세요.');
+    if(type==='limit'&&(!Number.isSafeInteger(limit)||limit<market.lowerLimit||limit>market.upperLimit||quotePrice(limit)!==limit))return empty('지정가 범위·호가 단위를 확인하세요.');
+    const maximum=this.maxOrderQuantity(id,action,type,limit);
+    if(quantity>maximum)return empty(`현재 조건에서 최대 ${maximum.toLocaleString('ko-KR')}주까지 주문할 수 있습니다.`);
+    // Settle only the proposed order against a copy of the visible opposite
+    // book. Reuse real capacities, fees and VI checks without touching live
+    // accounts, orders, callbacks, random streams or the experiment action log.
+    const shadow=Object.create(this);
+    shadow.accounts=this.accounts.map(copy);shadow.player=copy(this.player);
+    shadow.byAccountId=new Map([...shadow.accounts,shadow.player].map(a=>[a.id,a]));
+    shadow.markets=this.markets.map(m=>{
+      const view=Object.create(m);
+      view.background=m.background.map(a=>({...a}));
+      view.agents=m.agents.map(a=>{const agent={...a};shadow.bindAgent(view,agent,shadow.byAccountId.get(a.id));return agent;});
+      view.manualAgent={...m.manualAgent};shadow.bindAgent(view,view.manualAgent,shadow.player);
+      view.capacity=(agent,side,price,order)=>shadow.capacity(view,agent,side,price,order);
+      view.onManualFill=undefined;view.onParticipantFill=undefined;view.auctionEvents=[];
+      return view;
+    });
+    const view=shadow.market(id),side=action==='buy'?'buy':'sell';
+    view.book=market.book.filter(o=>o.remaining>0&&o.agentId!=='player'&&o.side!==side).map(o=>({...o}));
+    view.newOrder(view.manualAgent,side,quantity,type==='limit'?limit:side==='buy'?view.upperLimit:view.lowerLimit,{allowShort:action==='short'});
+    const trades=view.match(),filled=trades.reduce((sum,t)=>sum+t.quantity,0),amount=trades.reduce((sum,t)=>sum+t.price*t.quantity,0),fees=trades.reduce((sum,t)=>sum+t.feePerSide,0);
+    const vwap=filled?amount/filled:null,remaining=quantity-filled;
+    return {filled,remaining,vwap,amount,fees,lastPrice:trades.at(-1)?.price ?? null,slippageBps:vwap===null?null:(vwap/reference-1)*(side==='buy'?1:-1)*10000,reason:view.viUntil>market.tick?'VI 발동 예상 · 이후 체결 보류':remaining?'현재 호가·주문 여력 내 부분 체결 예상':'현재 호가 내 전량 체결 예상'};
   }
   playerSnapshot(){
     const equity=this.equity(),gross=this.gross();
@@ -216,7 +243,7 @@ export class SecuritiesSimulation {
   recordAction(type,data){if(!this.replaying)this.actions.push({step:this.stepCount,type,...copy(data)});}
   exportExperiment(){return {schemaVersion:1,modelVersion:MODEL_VERSION,config:copy(this.initialConfig),steps:this.stepCount,actions:copy(this.actions)};}
   static fromExperiment(value){
-    if(value?.schemaVersion!==1||value.modelVersion!==MODEL_VERSION)throw new Error('지원하지 않는 실험 버전입니다.');
+    if(value?.schemaVersion!==1||value.modelVersion!==MODEL_VERSION)throw new Error(`이 실험은 ${value?.modelVersion || '알 수 없는 모형'}으로 저장됐습니다. 현재 ${MODEL_VERSION}과 체결 규칙이 달라 재생할 수 없습니다. 기존 설정은 유지됩니다.`);
     if(!Number.isInteger(value.steps)||value.steps<0||value.steps>234000||!Array.isArray(value.actions)||value.actions.length>10000)throw new Error('실험은 100거래일·10,000개 조작까지 불러올 수 있습니다.');
     const sim=new SecuritiesSimulation(value.config);sim.replaying=true;let prior=0;
     for(const action of value.actions){
